@@ -1,0 +1,44 @@
+import Header from "@/components/Header";
+import BottomNav from "@/components/BottomNav";
+import { requireProfile } from "@/lib/actions/auth";
+import {
+  getAssinaturaAtual,
+  getCardapioDoDia,
+  getDiaSemanaAtual,
+  listLembretesByPaciente,
+  listPlanos,
+} from "@/lib/queries";
+import InicioClient from "./InicioClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function PacienteInicioPage() {
+  const profile = await requireProfile();
+  const diaSemana = getDiaSemanaAtual();
+
+  const [cardapio, lembretes, assinatura, planos] = await Promise.all([
+    getCardapioDoDia(diaSemana),
+    listLembretesByPaciente(profile.id),
+    getAssinaturaAtual(profile.id),
+    listPlanos(),
+  ]);
+
+  return (
+    <>
+      <Header avatarName={profile.nome} avatarHref="/paciente/perfil" />
+      <main className="flex-1 px-4 pb-6 pt-4">
+        <h1 className="mb-1 text-lg font-extrabold text-primaria-escura">Olá, {profile.nome.split(" ")[0]} 👋</h1>
+        <p className="mb-4 text-sm text-texto/70">Cuide do seu coração todos os dias.</p>
+
+        <InicioClient
+          diaSemana={diaSemana}
+          cardapio={cardapio}
+          lembretes={lembretes}
+          assinatura={assinatura}
+          planos={planos}
+        />
+      </main>
+      <BottomNav role="paciente" />
+    </>
+  );
+}
