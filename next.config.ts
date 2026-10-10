@@ -11,6 +11,7 @@ const nextConfig: NextConfig = {
         "localhost:3000",
         "127.0.0.1:3000",
         "*.e2b.app",
+        "com.cardajuda.app",
       ],
     },
   },
