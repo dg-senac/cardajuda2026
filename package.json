@@ -11,6 +11,8 @@
     "db:setup": "node scripts/db-setup.mjs",
     "db:seed": "node scripts/db-setup.mjs --seed",
     "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "cap:sync": "cap sync",
     "cap:open:android": "cap open android",

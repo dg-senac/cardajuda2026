@@ -34,6 +34,28 @@ if (!/^postgres(ql)?:\/\//i.test(databaseUrl)) {
 
 const connectionTimeoutMs = Number(process.env.DB_CONNECTION_TIMEOUT_MS || 15_000);
 
+/**
+ * Teto de execução de CADA query (padrão 30s).
+ *
+ * Sem isso, uma consulta lenta (banco acordando de pause, `seq scan` em tabela
+ * grande, lock de um `ALTER TABLE` rodando no SQL Editor) deixa a Server Action
+ * pendurada: a tela fica no "carregando" e o usuário recaricha, empilhando mais
+ * consultas. Com o timeout o Postgres cancela a query e o app devolve um erro
+ * com SQLSTATE 57014, que o catálogo de diagnóstico sabe explicar.
+ *
+ * `application_name` aparece no `pg_stat_activity` do Supabase, o que permite
+ * diferenciar as queries deste app das de um `drizzle-kit studio` aberto.
+ */
+const statementTimeoutMs = Number(process.env.DB_STATEMENT_TIMEOUT_MS || 30_000);
+const serverOptions = [
+  Number.isFinite(statementTimeoutMs) && statementTimeoutMs > 0
+    ? `-c statement_timeout=${Math.round(statementTimeoutMs)}`
+    : null,
+  "-c application_name=cardiajuda",
+]
+  .filter(Boolean)
+  .join(" ");
+
 const globalForDb = globalThis as typeof globalThis & {
   __arenaNextJsPostgresqlPool?: Pool;
   __arenaNextJsPostgresqlPoolErrorHandler?: boolean;
@@ -43,12 +65,16 @@ export const pool =
   globalForDb.__arenaNextJsPostgresqlPool ??
   new Pool({
     connectionString: databaseUrl,
+    options: serverOptions,
     // Sem isto, um pooler/projeto pausado deixa a requisição pendurada para
     // sempre (a tela fica só com o "carregando"). Com o limite, o erro aparece.
     connectionTimeoutMillis: Number.isFinite(connectionTimeoutMs) ? connectionTimeoutMs : 15_000,
     idleTimeoutMillis: 30_000,
+    // O session pooler do Supabase libera ~60 conexões por projeto no plano
+    // gratuito; 10 por instância evita que um `npm run dev` esgote o pool.
     max: 10,
   });
+
 
 // Um cliente ocioso que morre (pooler derrubando conexão, rede caindo) emite
 // 'error' no pool. Sem listener, o Node derruba o processo inteiro.

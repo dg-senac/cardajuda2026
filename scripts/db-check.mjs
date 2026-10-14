@@ -12,7 +12,11 @@
  *   4. se dá para conectar e com qual versão do Postgres;
  *   5. quais das 13 tabelas do app existem nesse banco (o erro de cadastro
  *      costuma ser "a tabela profiles não existe AQUI");
- *   6. se a query exata do cadastro roda.
+ *   6. se os índices e constraints que o app espera estão no banco (drift de
+ *      schema: `drizzle-kit push` num schema.ts incompleto derruba índice);
+ *   7. se a query exata do cadastro roda;
+ *   8. integridade dos dados: contas órfãs (profiles sem pacientes/medicos),
+ *      sessões vencidas e valores fora dos CHECK.
  *
  * Uso:
  *   npm run db:check
@@ -125,6 +129,173 @@ async function checkDns(host) {
     console.log(`         -> ${diagnosis.hint}`);
     return { ok: false, diagnosis };
   }
+}
+
+
+/**
+ * Índices e constraints que src/db/schema.ts + supabase/schema.sql prometem ao
+ * app. Ficam duplicados aqui DE PROPÓSITO: este script é a checagem independente
+ * -- se o schema.sql e o schema.ts divergirem, ele aponta o que falta no banco.
+ */
+const EXPECTED_INDEXES = [
+  "profiles_created_at_idx",
+  "sessions_user_id_idx",
+  "sessions_expires_at_idx",
+  "consultas_paciente_id_data_idx",
+  "consultas_medico_id_data_idx",
+  "triagens_medico_id_data_idx",
+  "triagens_paciente_id_idx",
+  "medicoes_paciente_id_created_idx",
+  "alertas_created_idx",
+  "alertas_paciente_id_idx",
+  "pendencias_medico_id_created_idx",
+  "pendencias_paciente_id_idx",
+  "lembretes_paciente_id_ativo_idx",
+  "cardapio_semanal_dia_semana_idx",
+  "cardapio_semanal_dia_refeicao_unique",
+  "assinaturas_paciente_id_status_idx",
+  "assinaturas_plano_id_idx",
+];
+
+const EXPECTED_CONSTRAINTS = [
+  "profiles_email_unique",
+  "profiles_role_check",
+  "pacientes_cpf_unique",
+  "pacientes_id_profiles_id_fk",
+  "medicos_crm_unique",
+  "medicos_id_profiles_id_fk",
+  "sessions_user_id_profiles_id_fk",
+  "consultas_status_check",
+  "consultas_paciente_id_pacientes_id_fk",
+  "consultas_medico_id_medicos_id_fk",
+  "triagens_classificacao_check",
+  "triagens_paciente_id_pacientes_id_fk",
+  "triagens_medico_id_medicos_id_fk",
+  "medicoes_status_check",
+  "medicoes_paciente_id_pacientes_id_fk",
+  "alertas_status_check",
+  "alertas_paciente_id_pacientes_id_fk",
+  "alertas_medico_id_medicos_id_fk",
+  "pendencias_medico_id_medicos_id_fk",
+  "pendencias_paciente_id_pacientes_id_fk",
+  "lembretes_paciente_id_pacientes_id_fk",
+  "assinaturas_paciente_id_pacientes_id_fk",
+  "assinaturas_plano_id_planos_id_fk",
+  "assinaturas_status_check",
+  "pacientes_altura_check",
+  "pacientes_idade_check",
+];
+
+async function checkSchemaObjects(client) {
+  const idx = await client.query(
+    "select indexname as name from pg_indexes where schemaname = 'public'",
+  );
+  const con = await client.query(
+    "select conname as name from pg_constraint where connamespace = 'public'::regnamespace",
+  );
+  const presentes = new Set([
+    ...idx.rows.map((row) => row.name),
+    ...con.rows.map((row) => row.name),
+  ]);
+  const faltando = [];
+  for (const name of EXPECTED_INDEXES) {
+    if (!presentes.has(name)) faltando.push(`índice ${name}`);
+  }
+  for (const name of EXPECTED_CONSTRAINTS) {
+    if (!presentes.has(name)) faltando.push(`constraint ${name}`);
+  }
+  return faltando;
+}
+
+/**
+ * Dados que passam no SELECT mas quebram tela: cadastro salvo pela metade
+ * (profiles sem pacientes/medicos), sessão vencida (login "não pega") e status
+ * fora da lista do CHECK (linha antiga que impede o constraint de ser criado).
+ */
+async function checkIntegrity(client) {
+  const problems = [];
+  const has = async (table) => {
+    const r = await client.query(
+      "select 1 from information_schema.tables where table_schema='public' and table_name=$1",
+      [table],
+    );
+    return r.rowCount > 0;
+  };
+
+  const queries = [];
+  if ((await has("profiles")) && (await has("pacientes"))) {
+    queries.push({
+      label: "profiles de paciente sem linha em pacientes",
+      sql: `select count(*)::int as n from "profiles" p where p.role = 'paciente' and not exists (select 1 from "pacientes" x where x.id = p.id)`,
+      zero: (n) => n === 0,
+      what: "contas de paciente salvas pela metade (só o profiles existe): login entra, toda tela de paciente vem vazia",
+      fix: "delete do perfil órfão + cadastro de novo: select p.id, p.email from profiles p left join pacientes x on x.id = p.id where p.role = 'paciente' and x.id is null;",
+    });
+  }
+  if ((await has("profiles")) && (await has("medicos"))) {
+    queries.push({
+      label: "profiles de médico sem linha em medicos",
+      sql: `select count(*)::int as n from "profiles" p where p.role = 'medico' and not exists (select 1 from "medicos" x where x.id = p.id)`,
+      zero: (n) => n === 0,
+      what: "contas de médico sem a linha em medicos",
+      fix: "o cadastro grava as duas tabelas numa transação; estas linhas são de antes. Delete-as pelo SQL Editor e cadastre de novo.",
+    });
+  }
+  if ((await has("consultas")) && (await has("medicos"))) {
+    queries.push({
+      label: "consultas 'agendada' sem medico_id",
+      sql: `select count(*)::int as n from "consultas" where "medico_id" is null and "status" = 'agendada'`,
+      zero: (n) => n === 0,
+      what:
+        "consultas que nenhum médico vê na agenda: a listagem e o 'marcar como realizada' filtram por medico_id, " +
+        "então uma linha sem esse vínculo fica presa em 'agendada' para sempre",
+      fix:
+        "o agendamento passou a vincular o profissional digitado ao cadastro; para as antigas, olhe uma por uma e " +
+        "vincule sem palpote:  select id, data, profissional from consultas where medico_id is null and status = 'agendada';  " +
+        " ->  update consultas set medico_id = '<id do médico certo>' where id = '<id da consulta>';  " +
+        "(quem agenda pelo app nunca mais precisa disso)",
+    });
+  }
+  if (await has("sessions")) {
+    queries.push({
+      label: "sessões já vencidas na tabela sessions",
+      sql: `select count(*)::int as n from "sessions" where expires_at < now()`,
+      zero: (n) => n === 0,
+      what: "linhas de sessão vencidas (o login de quem tem esse cookie cai no /login para sempre)",
+      fix: "delete from sessions where expires_at < now(); -- o createSession já faz a limpeza por usuário a cada login",
+    });
+  }
+  for (const table of ["consultas", "medicoes", "alertas", "triagens"]) {
+    if (!(await has(table))) continue;
+    const lista =
+      table === "consultas"
+        ? "'agendada','realizada','cancelada'"
+        : table === "medicoes"
+          ? "'normal','atencao','alerta'"
+          : table === "alertas"
+            ? "'alerta','pendente','em_dia'"
+            : "'verde','amarela','vermelha'";
+    queries.push({
+      label: `${table}.status/classificacao fora da lista do CHECK`,
+      sql: `select count(*)::int as n from "${table}" where "${table === "triagens" ? "classificacao" : "status"}" not in (${lista})`,
+      zero: (n) => n === 0,
+      what: `linhas em ${table} com valor que o CHECK do schema.sql recusa`,
+      fix: `update ${table} set ${table === "triagens" ? "classificacao" : "status"} = ... ;  -- valores aceitos: (${lista})`,
+    });
+  }
+
+  for (const check of queries) {
+    try {
+      const result = await client.query(check.sql);
+      const n = result.rows[0]?.n ?? 0;
+      if (!check.zero(n)) {
+        problems.push({ what: `${check.label}: ${n}`, fix: check.fix });
+      }
+    } catch (error) {
+      problems.push({ what: `não foi possível conferir ${check.label} (${error.message})`, fix: null });
+    }
+  }
+  return problems;
 }
 
 async function main() {
@@ -271,7 +442,23 @@ async function main() {
     console.log(`  [ok] ${table.padEnd(18)} existe (${count} linha${count === "1" ? "" : "s"})`);
   }
 
-  section("6. A query do cadastro (a mesma do erro)");
+  section("6. Índices e constraints que o app espera");
+  let drift = [];
+  try {
+    drift = await checkSchemaObjects(client);
+    if (drift.length === 0) {
+      console.log(`  [ok] os ${EXPECTED_INDEXES.length} índices e os ${EXPECTED_CONSTRAINTS.length} constraints do schema estão aqui.`);
+    } else {
+      for (const item of drift) console.log(`  [faltando] ${item}`);
+      console.log("  Por que importa: sem os índices, cada listagem do app varre a tabela inteira (seq scan + sort) e o");
+      console.log("  primeiro `drizzle-kit push` num schema.ts sem eles REMOVE os que existiam. O fix é o mesmo:");
+      console.log("    npm run db:setup   # cria o que falta, sem apagar seus dados");
+    }
+  } catch (error) {
+    console.log(`  [aviso] não foi possível conferir índices/constraints: ${error.message}`);
+  }
+
+  section("7. A query do cadastro (a mesma do erro)");
   let queryOk = false;
   if (!missing.includes("profiles")) {
     try {
@@ -290,10 +477,21 @@ async function main() {
     console.log('  [X] impossível testar: a tabela "profiles" não existe neste banco.');
   }
 
+  section("8. Integridade dos dados (o que quebra tela, não a conexão)");
+  const integrity = await checkIntegrity(client);
+  if (integrity.length === 0) {
+    console.log("  [ok] nenhuma conta órfã, sessão vencida ou status fora do CHECK.");
+  } else {
+    for (const problem of integrity) {
+      console.log(`  [atenção] ${problem.what}`);
+      if (problem.fix) console.log(`            -> ${problem.fix}`);
+    }
+  }
+
   await client.end();
 
   section("Resultado");
-  if (missing.length === 0 && queryOk) {
+  if (missing.length === 0 && queryOk && drift.length === 0 && integrity.length === 0) {
     console.log("  [ok] Tudo certo: o app consegue conectar e o schema está aplicado.");
     console.log("       Se o cadastro ainda falhar, rode `npm run dev` e olhe o terminal: o erro real");
     console.log("       agora aparece no log (linhas começando com [auth] / [db]).");
@@ -315,6 +513,23 @@ async function main() {
       console.log("");
       console.log("         Atenção: sem as tabelas " + AUTH_TABLES.join("/") + " o login também não funciona.");
     }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (drift.length > 0) {
+    console.log(`  [erro] Faltam ${drift.length} objeto(s) de schema (índices/constraints) neste banco.`);
+    console.log("         As telas funcionam, mas cada listagem vira varredura completa -- e o proximo");
+    console.log("         `npm run db:push` passa a propor DROP dos índices de quem criou via schema.sql.");
+    console.log("         Rode `npm run db:setup`: ele adiciona o que falta sem tocar nos dados.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (integrity.length > 0) {
+    console.log(`  [aviso] O banco responde e o schema está ok, mas há ${integrity.length} problema(s) de dados.`);
+    console.log("         Cada um deles é tela vazia/erro de permissão aparente na tela errada -- o SQL de");
+    console.log("         correção está impresso na seção 8.");
     process.exitCode = 1;
     return;
   }

@@ -5,7 +5,7 @@ import EmptyState from "@/components/EmptyState";
 import Icon from "@/components/Icon";
 import SectionTitle from "@/components/SectionTitle";
 import { requireProfile } from "@/lib/actions/auth";
-import { getPacienteById, listAlertas, listPendenciasByMedico } from "@/lib/queries";
+import { listAlertas, listPendenciasComPaciente } from "@/lib/queries";
 import { timeAgo } from "@/lib/validations";
 import PendenciaItem from "./PendenciaItem";
 
@@ -34,15 +34,15 @@ const ALERTA_CORES: Record<string, { border: string; bg: string; text: string; l
 
 export default async function MedicoAlertasPage() {
   const profile = await requireProfile();
-  const [alertas, pendencias] = await Promise.all([listAlertas(), listPendenciasByMedico(profile.id)]);
+  const [alertas, nomesPendencias] = await Promise.all([
+    listAlertas(),
+    listPendenciasComPaciente(profile.id),
+  ]);
 
   const alertasAtivos = alertas.filter((a) => a.status === "alerta");
-  const pendentes = pendencias.filter((p) => !p.concluida);
+  const pendentes = nomesPendencias.filter((p) => !p.concluida);
   const emDia = alertas.filter((a) => a.status === "em_dia").length;
 
-  const nomesPendencias = await Promise.all(
-    pendencias.map(async (p) => ({ ...p, pacienteNome: (await getPacienteById(p.pacienteId))?.nome ?? "Paciente" })),
-  );
 
   return (
     <>
