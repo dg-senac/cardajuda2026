@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   alertas,
@@ -77,14 +77,29 @@ export async function listMedicos(): Promise<Medico[]> {
   return rows.map((row) => toMedico(row.profiles, row.medicos));
 }
 
+/**
+ * Prepara o termo para dentro de um LIKE/ILIKE.
+ *
+ * Sem isto, um "%" ou "_" digitado na busca vira curinga do padrão: procurar por
+ * "100%" achava qualquer CPF terminando em 100, e o "%" sozinho devolvia a lista
+ * inteira. O `\\` é escapado junto para o usuário poder procurar por backslash.
+ */
+function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
 export async function listPacientes(search?: string): Promise<Paciente[]> {
   const base = db
     .select()
     .from(pacientes)
     .innerJoin(profiles, eq(pacientes.id, profiles.id));
 
+  // ORDER BY nos dois ramos: sem ele a busca voltava em ordem arbitrária (e
+  // mudando a cada página), porque o Postgres não garante ordem sem ORDER BY.
   const rows = search
-    ? await base.where(or(ilike(profiles.nome, `%${search}%`), ilike(pacientes.cpf, `%${search}%`)))
+    ? await base
+        .where(or(ilike(profiles.nome, likePattern(search)), ilike(pacientes.cpf, likePattern(search))))
+        .orderBy(desc(profiles.createdAt), profiles.nome)
     : await base.orderBy(desc(profiles.createdAt));
 
   return rows.map((row) => toPaciente(row.profiles, row.pacientes));
@@ -170,6 +185,52 @@ function mapMedicao(row: typeof medicoes.$inferSelect): Medicao {
   };
 }
 
+/**
+ * Última medição de CADA paciente numa query só.
+ *
+ * A tela /medico/pacientes fazia `listMedicoesByPaciente(id, 1)` dentro de um
+ * `Promise.all` por paciente: 1 + N ida ao banco (com N=300 pacientes eram 301
+ * queries, cada uma pagando latência de pooler -- na prática, a tela demorando
+ * segundos). `distinct on` é a forma nativa do Postgres de dizer "a linha mais
+ * recente por grupo"; o índice medicoes_paciente_id_created_idx atende exatamente
+ * essa ordem, então o plano é um index scan por paciente, sem sort.
+ */
+export async function getUltimasMedicoesPorPaciente(
+  pacienteIds: string[],
+): Promise<Map<string, Medicao>> {
+  if (pacienteIds.length === 0) return new Map();
+
+  const rows = await db
+    .selectDistinctOn([medicoes.pacienteId], { medicao: medicoes })
+    .from(medicoes)
+    .where(inArray(medicoes.pacienteId, pacienteIds))
+    .orderBy(medicoes.pacienteId, desc(medicoes.createdAt));
+
+  return new Map(rows.map((row) => [row.medicao.pacienteId, mapMedicao(row.medicao)]));
+}
+
+/** Pacientes + última medição de cada um, em 2 queries (era 1 + N). */
+export async function listPacientesComUltimaMedicao(search?: string): Promise<
+  {
+    id: string;
+    nome: string;
+    idade: number;
+    genero: string;
+    ultima: Medicao | null;
+  }[]
+> {
+  const pacientesList = await listPacientes(search);
+  const ultimas = await getUltimasMedicoesPorPaciente(pacientesList.map((p) => p.id));
+
+  return pacientesList.map((paciente) => ({
+    id: paciente.id,
+    nome: paciente.nome,
+    idade: paciente.idade,
+    genero: paciente.genero,
+    ultima: ultimas.get(paciente.id) ?? null,
+  }));
+}
+
 export async function listMedicoesByPaciente(pacienteId: string, limit = 10): Promise<Medicao[]> {
   const rows = await db
     .select()
@@ -221,6 +282,23 @@ export async function listPendenciasByMedico(medicoId: string): Promise<Pendenci
     .where(eq(pendencias.medicoId, medicoId))
     .orderBy(desc(pendencias.createdAt));
   return rows.map(mapPendencia);
+}
+
+/**
+ * Pendências do médico já com o nome do paciente (o JOIN economiza um select por
+ * linha -- a tela de alertas fazia getPacienteById() para cada pendência).
+ */
+export async function listPendenciasComPaciente(medicoId: string): Promise<
+  (Pendencia & { pacienteNome: string })[]
+> {
+  const rows = await db
+    .select({ pendencia: pendencias, pacienteNome: profiles.nome })
+    .from(pendencias)
+    .innerJoin(profiles, eq(pendencias.pacienteId, profiles.id))
+    .where(eq(pendencias.medicoId, medicoId))
+    .orderBy(desc(pendencias.createdAt));
+
+  return rows.map((row) => ({ ...mapPendencia(row.pendencia), pacienteNome: row.pacienteNome }));
 }
 
 export async function listLembretesByPaciente(pacienteId: string): Promise<Lembrete[]> {

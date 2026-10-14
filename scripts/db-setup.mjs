@@ -96,6 +96,21 @@ async function main() {
     connectionTimeoutMillis: 15_000,
   });
 
+  // O schema.sql cria constraint por constraint e transforma conflito em NOTICE
+  // ("não foi possível criar pacientes_altura_check: ..."), para um dado antigo
+  // não abortar o script inteiro. Sem este listener o aviso nascia e morria no
+  // servidor, e a pessoa descobria a ausência lá na frente, em produção.
+  const avisos = [];
+  client.on("notice", (notice) => {
+    const message = String(notice.message ?? "").replace(/\s+/g, " ").trim();
+    if (!message) return;
+    // "create index if not exists" em banco já aplicado emite um NOTICE por
+    // objeto; mostrar isso polui e ensina a ignorar o que importa.
+    if (/already exists.*skipping$/i.test(message)) return;
+    avisos.push(message);
+    console.log(`[aviso] ${message}`);
+  });
+
   try {
     await client.connect();
   } catch (error) {
@@ -143,6 +158,7 @@ async function main() {
   }
 
   const missing = await listMissingTables(client);
+  const drifted = await listMissingSchemaObjects(client);
 
   section("Resultado");
   if (missing.length > 0) {
@@ -152,6 +168,13 @@ async function main() {
     process.exitCode = 1;
   } else {
     console.log("[ok] As 13 tabelas existem neste banco (schema aplicado).");
+    if (drifted.length > 0) {
+      console.log(`     [atenção] faltam ${drifted.length} objeto(s) de schema, veja a seção "Índices e constraints".`);
+      for (const item of drifted) console.log(`       - ${item}`);
+    }
+    if (avisos.length > 0) {
+      console.log(`     ${avisos.length} aviso(s) do Postgres acima: normalmente é dado antigo contradizendo a regra nova.`);
+    }
     if (withSeed) {
       const counts = await client.query(
         "select (select count(*)::int from profiles) as perfis, (select count(*)::int from pacientes) as pacientes, (select count(*)::int from medicos) as medicos",
@@ -171,6 +194,42 @@ async function main() {
 async function countExistingTables(client) {
   const missing = await listMissingTables(client);
   return APP_TABLES.length - missing.length;
+}
+
+/**
+ * Índices/constraints que o app espera (mesma lista do `npm run db:check`).
+ * Um banco criado por versao antiga do schema, ou por um `drizzle-kit push` com
+ * schema.ts incompleto, chega aqui com as tabelas certas e os indices apagados.
+ */
+const EXPECTED_SCHEMA_OBJECTS = [
+  "profiles_created_at_idx",
+  "sessions_user_id_idx",
+  "sessions_expires_at_idx",
+  "consultas_paciente_id_data_idx",
+  "consultas_medico_id_data_idx",
+  "triagens_medico_id_data_idx",
+  "triagens_paciente_id_idx",
+  "medicoes_paciente_id_created_idx",
+  "alertas_created_idx",
+  "alertas_paciente_id_idx",
+  "pendencias_medico_id_created_idx",
+  "pendencias_paciente_id_idx",
+  "lembretes_paciente_id_ativo_idx",
+  "cardapio_semanal_dia_semana_idx",
+  "cardapio_semanal_dia_refeicao_unique",
+  "assinaturas_paciente_id_status_idx",
+  "assinaturas_plano_id_idx",
+  "pacientes_altura_check",
+  "pacientes_idade_check",
+  "assinaturas_status_check",
+];
+
+async function listMissingSchemaObjects(client) {
+  const result = await client.query(
+    "select indexname as name from pg_indexes where schemaname = 'public' union all select conname from pg_constraint where connamespace = 'public'::regnamespace",
+  );
+  const present = new Set(result.rows.map((row) => row.name));
+  return EXPECTED_SCHEMA_OBJECTS.filter((name) => !present.has(name));
 }
 
 async function listMissingTables(client) {

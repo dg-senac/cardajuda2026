@@ -96,6 +96,76 @@ test("certificado TLS não validado (pg 8.16+ com sslmode=require)", () => {
   assert.match(diagnosis.hint, /uselibpqcompat=true/);
 });
 
+test("FK violada: explica o cadastro salvo pela metade", () => {
+  const diagnosis = diagnoseDbError(
+    pgError(
+      "23503",
+      'insert or update on table "consultas" violates foreign key constraint "consultas_paciente_id_pacientes_id_fk"',
+    ),
+  );
+
+  assert.match(diagnosis.summary, /linha dependente não existe/i);
+  assert.match(diagnosis.hint, /db:check/);
+});
+
+test("numeric overflow (altura em cm) deixa de ser erro misterioso", () => {
+  const overflow = diagnoseDbError(pgError("22003", "numeric field overflow"));
+  assert.match(overflow.summary, /não cabe na coluna/i);
+  assert.match(overflow.hint, /altura/i);
+
+  const inteiro = diagnoseDbError(pgError("22003", "integer out of range"));
+  assert.equal(inteiro.summary, overflow.summary);
+});
+
+test("violação de CHECK aponta a lista de valores do schema", () => {
+  const diagnosis = diagnoseDbError(
+    pgError("23514", 'new row for relation "medicoes" violates check constraint "medicoes_status_check"'),
+  );
+
+  assert.match(diagnosis.summary, /CHECK/i);
+  assert.match(diagnosis.hint, /normal\/atencao\/alerta|atencao/);
+});
+
+test("coluna inexistente: é divergência de schema, não SQL errado", () => {
+  const diagnosis = diagnoseDbError(pgError("42703", 'column "plano" of relation "pacientes" does not exist'));
+
+  assert.match(diagnosis.summary, /coluna que não existe/i);
+  assert.match(diagnosis.hint, /db:setup/);
+});
+
+test("uuid/data malformados viram mensagem legível", () => {
+  const uuid = diagnoseDbError(pgError("22P02", 'invalid input syntax for type uuid: ""'));
+  assert.match(uuid.hint, /hidden|AAAA-MM-DD/);
+
+  const data = diagnoseDbError(pgError("22007", "invalid input syntax for type date: \"hoje\""));
+  assert.match(data.summary, /formato que a coluna n[aã]o aceita|date/i);
+});
+
+test("erro em cascata dentro de transação não é o erro principal", () => {
+  const diagnosis = diagnoseDbError(
+    pgError("25P02", "current transaction is aborted, commands ignored until end of transaction block"),
+  );
+
+  assert.match(diagnosis.summary, /consequ/i);
+  assert.match(diagnosis.hint, /ANTES/);
+});
+
+test("statement_timeout do app tem explicação própria", () => {
+  const diagnosis = diagnoseDbError(pgError("57014", "canceling statement due to statement timeout"));
+
+  assert.match(diagnosis.summary, /statement_timeout/);
+  assert.match(diagnosis.hint, /DB_STATEMENT_TIMEOUT_MS/);
+});
+
+test("conexão cortada no meio do handshake (rede/proxy) sai do texto genérico", () => {
+  // Foi exatamente o que este sandbox produziu: TCP abre, nada responde.
+  const diagnosis = diagnoseDbError(new Error("Connection terminated unexpectedly"));
+
+  assert.equal(diagnosis.code, null);
+  assert.match(diagnosis.summary, /ENCERRADA antes do login/i);
+  assert.match(diagnosis.hint, /firewall|proxy/i);
+});
+
 test("código desconhecido não quebra: cai no texto genérico", () => {
   const diagnosis = diagnoseDbError(pgError("XX000", "internal error"));
 

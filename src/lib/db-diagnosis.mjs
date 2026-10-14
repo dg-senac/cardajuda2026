@@ -222,6 +222,18 @@ export function describeDatabaseTarget(rawUrl) {
 /** @type {ErrorRule[]} */
 const ERROR_RULES = [
   // ---------------------------------------------------------------- Postgres
+  // A regra 42703 (coluna inexistente) vem ANTES da de tabela inexistente porque
+  // esta tambem casa por mensagem, e "column ... of relation ... does not exist"
+  // conteria o padrao dela -- a pessoa receberia o conselho errado (rodar
+  // db:setup) para um problema de nome de coluna entre schema.ts e banco.
+  {
+    match: (c) =>
+      c.code === "42703" ||
+      /column .* does not exist|column ".*" of relation ".*" does not exist/i.test(c.message),
+    summary:
+      "O app consultou uma coluna que não existe neste banco -- schema do banco e src/db/schema.ts estão em versões diferentes.",
+    hint: "Rode `npm run db:setup` (ele adiciona o que falta sem apagar nada) e confira o resultado com `npm run db:check`. Se a coluna foi renomeada à mão, o `supabase/reset.sql` só deve ser usado com backup: ele recria as 13 tabelas.",
+  },
   {
     match: (c) => c.code === "42P01" || /relation ".*" does not exist/i.test(c.message),
     summary:
@@ -275,16 +287,74 @@ const ERROR_RULES = [
     hint: "Verifique se a conta já foi criada antes: tente entrar com esse email em /login. Se a linha antiga ficou incompleta, remova-a pelo SQL Editor do Supabase (select * from profiles where email = '...') e cadastre de novo.",
   },
   {
+    match: (c) => c.code === "23503" || /violates foreign key constraint/i.test(c.message),
+    summary:
+      'A gravação foi recusada porque a linha dependente não existe (ex.: uma consulta apontando para um paciente que não está em "pacientes").',
+    hint: 'Neste projeto o caso clássico é cadastro salvo pela metade: existe a linha em "profiles" e falta a de "pacientes"/"medicos". Rode `npm run db:check` -- ele lista essas contas órfãs e o SQL para corrigir. Os cadastros agora gravam as duas tabelas numa transação só, então isto só aparece em dados antigos.',
+  },
+  {
+    match: (c) => c.code === "23502" || /null value in column .* violates not-null constraint/i.test(c.message),
+    summary: "Uma coluna obrigatória (NOT NULL) chegou vazia.",
+    hint: "Se o formulário tem o campo preenchido, a divergência é entre o schema do banco e o de src/db/schema.ts (coluna nova exigida sem default). Rode `npm run db:setup` para adicionar o que falta e confira no `npm run db:check` se sobrou alguma tabela com colunas a menos.",
+  },
+  {
+    match: (c) => c.code === "23514" || /violates check constraint/i.test(c.message),
+    summary:
+      "O valor viola um CHECK do banco (as listas fechadas de status, classificação, papel, altura e idade).",
+    hint: "Os CHECK estão em supabase/schema.sql e em src/db/schema.ts: status de consulta é agendada/realizada/cancelada, o de medição é normal/atencao/alerta, o de alerta é alerta/pendente/em_dia, classificação de triagem é verde/amarela/vermelha e role é paciente/medico. Se o valor vier de um seed ou do SQL Editor, ajuste o dado -- não apague o CHECK.",
+  },
+  {
+    match: (c) =>
+      c.code === "22003" ||
+      /numeric field overflow|integer out of range|value too large for type/i.test(c.message),
+    summary:
+      'O número não cabe na coluna: "numeric field overflow" (numeric(5,2)) ou "integer out of range".',
+    hint: "O caso mais comum aqui é altura digitada em centímetros (170 em vez de 1,70) ou pressão/glicemia com valor absurdo. As colunas são pacientes.altura numeric(5,2) e integer para as medições. O app já valida a faixa antes do insert; se você vir isto, confira se o schema do banco é o mesmo de src/db/schema.ts.",
+  },
+  {
+    match: (c) =>
+      c.code === "22P02" ||
+      /invalid input syntax for type/i.test(c.message),
+    summary:
+      "O Postgres recebeu um valor num formato que a coluna não aceita (uuid, date ou numeric mal formados).",
+    hint: 'uuid: os ids vêm de <input type=\"hidden\"> nas telas do médico -- se o paciente não foi escolhido na lista, o campo vai vazio/texto e o insert quebra (o app agora confere antes). date: as colunas pedem AAAA-MM-DD. numeric: use ponto, não vírgula (1.70, não \"1,70\").',
+  },
+  {
+    match: (c) => c.code === "22007" || /invalid datetime field|date\/time field value out of range/i.test(c.message),
+    summary: "Data ou hora fora do formato/intervalo que a coluna `date` aceita.",
+    hint: 'As action de consulta e triagem só aceitam AAAA-MM-DD e HH:MM; qualquer outro texto (incluindo "hoje") é recusado antes de chegar ao banco.',
+  },
+  {
+    match: (c) => c.code === "25P02" || /current transaction is aborted/i.test(c.message),
+    summary:
+      "Este erro é consequência: uma instrução anterior da mesma transação falhou e o Postgres abortou o resto.",
+    hint: "Procure no log a linha [db] imediatamente ANTES desta -- é o erro de verdade. As actions do app agora fazem rollback inteiro, então nenhuma gravação parcial ficou no banco.",
+  },
+  {
+    match: (c) => c.code === "42P05" || /prepared statement .* already exists/i.test(c.message),
+    summary: "Statements preparados não funcionam no transaction pooler (porta 6543).",
+    hint: "Use o Session pooler (porta 5432) ou a conexão direta. O app precisa de sessão consistente para as transações.",
+  },
+  {
     match: (c) => ["08000", "08001", "08003", "08004", "08006", "08007"].includes(c.code ?? ""),
     summary: "A conexão com o banco foi criada e caiu no meio (falha de rede/protocolo).",
     hint: "Costuma acontecer com o transaction pooler (porta 6543) ou proxy com timeout baixo. Use a porta 5432 (session pooler) na conexão direta do Supabase e verifique firewall/VPN.",
+  },
+  {
+    match: (c) =>
+      /connection terminated unexpectedly|socket hang up|connection closed|ssl connection has been closed normally/i.test(
+        c.message,
+      ),
+    summary:
+      "A conexão de rede com o host abriu e foi ENCERRADA antes do login terminar -- o Postgres nem respondeu (por isso não há código de erro).",
+    hint: 'Quase sempre é o caminho entre você e o banco, não a senha: firewall/proxy corporativo ou da rede bloqueando a porta 5432, antivírus inspecionando TLS, ou saída restrita (CI/sandbox que só liberam HTTPS). Testes: `npm run db:check` em outra rede (4G resolve o mesmo host?), e `psql \"<DATABASE_URL>\"` para ver se o erro é o mesmo. Em servidor que só fala com o Supabase via HTTPS, use o connection string direto com TLS no 5432 ou o pooler regional.',
   },
   // -------------------------------------------------------- Rede / DNS / TLS
   {
     match: (c) => c.code === "ENOTFOUND" || c.code === "EAI_AGAIN",
     summary:
       "O nome do host (DNS) não foi encontrado. O app não conseguiu nem chegar ao servidor -- a URL do banco não corresponde a um projeto existente.",
-    hint: "Veja o host que o app está usando com `npm run db:check`. Se for db.<ref>.supabase.co, esse endereço é IPv6-only e falha em muitas redes: troque por aws-0-<região>.pooler.supabase.com (Session pooler) copiando a string do painel. Se o host saiu como \"base\" ou \"localhost\", a DATABASE_URL está malformada (falta postgresql:// ou sobrou texto).",
+    hint: 'Veja o host que o app está usando com `npm run db:check`. Se for db.<ref>.supabase.co, esse endereço é IPv6-only e falha em muitas redes: troque por aws-0-<região>.pooler.supabase.com (Session pooler) copiando a string do painel. Se o host saiu como \"base\" ou \"localhost\", a DATABASE_URL está malformada (falta postgresql:// ou sobrou texto).',
   },
   {
     match: (c) => c.code === "ECONNREFUSED",
@@ -313,6 +383,14 @@ const ERROR_RULES = [
     summary:
       "Falha ao validar o certificado TLS do servidor (o handshake criptografado foi recusado pelo cliente).",
     hint: "No pg 8.16+ o `sslmode=require` passou a exigir verificação completa do certificado. Use ?sslmode=require&uselibpqcompat=true na DATABASE_URL. Se a rede tiver antivírus/proxy inspecionando TLS, é ele que está quebrando o certificado.",
+  },
+  {
+    match: (c) =>
+      c.code === "57014" ||
+      /canceling statement due to statement timeout|terminating connection due to/i.test(c.message),
+    summary:
+      "A query foi cancelada pelo limite de tempo (statement_timeout) ou por administracao do servidor.",
+    hint: "O app limita cada query a DB_STATEMENT_TIMEOUT_MS (padrao 30s) justamente para a tela nao ficar pendurada. Se um upload/listagem legitima passou a estourar: aumente a variavel, e rode `npm run db:check` -- plano de execucao ruim neste projeto costuma significar indice ausente (falta `npm run db:setup`).",
   },
   {
     match: (c) => /does not support SSL connections/i.test(c.message),
