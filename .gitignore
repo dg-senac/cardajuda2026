@@ -3,8 +3,10 @@ node_modules/
 out/
 .env
 .env.local
+.env.*.local
 *.tsbuildinfo
 next-env.d.ts
+# Legado: o alvo do drizzle-kit agora vem do DATABASE_URL em drizzle.config.ts
 drizzle.config.json
 android/
 ios/

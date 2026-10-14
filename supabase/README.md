@@ -31,6 +31,47 @@ Use os valores fornecidos pelo seu projeto e mantenha `sslmode=require` na conne
 
 Na Vercel ou em outro host, cadastre o mesmo valor como variável de ambiente **privada** `DATABASE_URL` — nunca como `NEXT_PUBLIC_DATABASE_URL`. O acesso ao banco ocorre somente no servidor.
 
+## Erro "Failed query: select ... from profiles" no cadastro/login
+
+O Drizzle embrulha toda falha do banco numa mensagem genérica (`Failed query: <sql>, params: ...`)
+e esconde a causa em `error.cause`. Tabela inexistente, senha errada, DNS, TLS e projeto pausado
+produzem **a mesma tela** — a diferença está só no código do Postgres. Para descobrir qual é a sua:
+
+```bash
+npm run db:check
+```
+
+Ele usa o mesmo `.env.local` do app e checa, em ordem: a origem e o formato da `DATABASE_URL`
+(senha nunca é exibida), o DNS do host, a conexão, quais das 13 tabelas existem e se a query do
+cadastro roda — terminando com o que fazer. Se o problema for schema ausente:
+
+```bash
+npm run db:setup   # aplica este schema.sql no banco da DATABASE_URL
+npm run db:seed    # opcional: contas de demonstração
+```
+
+Os dois scripts usam a `DATABASE_URL` do `.env.local`, ou seja, o MESMO banco do app (diferente de
+rodar o SQL "no projeto errado"). Também dá para ver o estado pelo navegador: `GET /api/health`
+responde `{"ok":false,"missingTables":[...],"fix":"npm run db:setup"}` quando conecta mas falta schema.
+
+Causas frequentes, do mais comum ao menos comum:
+
+1. **As tabelas foram criadas noutro banco.** Antes o `drizzle.config.json` versionado apontava para
+   `postgresql://postgres:postgres@127.0.0.1:5432/app_db`, então `npx drizzle-kit push` criava as
+   tabelas num Postgres local enquanto o app falava com o Supabase. Hoje o `drizzle.config.ts`
+   lê a `DATABASE_URL`, mas vale conferir com `npm run db:check` para onde os comandos apontam.
+2. **Host direto do Supabase (`db.<ref>.supabase.co`) é somente IPv6.** Em rede sem IPv6 o erro é
+   `ENOTFOUND` / `ETIMEDOUT` / `ENETUNREACH`. Use a string do **Session pooler**
+   (`aws-0-<região>.pooler.supabase.com:5432`), que tem IPv4, com o usuário `postgres.<ref>`.
+3. **Projeto pausado** (plano gratuito) — reative no painel; a primeira conexão demora ~30s.
+4. **Senha com caractere especial não codificado** (`@ # / : ?`): codifique como `%40 %23 %2F %3A %3F`
+   ou troque por uma senha só de letras e números.
+5. **Certificado TLS**: no `pg` 8.16+ o `sslmode=require` passou a significar verificação completa
+   (`verify-full`). Se aparecer `self-signed certificate` / `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, use
+   `?sslmode=require&uselibpqcompat=true` (semântica do libpq) na `DATABASE_URL`.
+6. **Espaço sobrando no valor** do `.env.local` — o erro vira `database "postgres " does not exist`.
+   O app já faz `trim()`, mas corrija o arquivo (e o valor cadastrado na Vercel/GitHub Actions).
+
 ## Contas e dados de demonstração
 
 Após executar `seed.sql`, todas as contas abaixo usam a senha `123456`:
