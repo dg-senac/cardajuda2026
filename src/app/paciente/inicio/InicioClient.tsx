@@ -89,7 +89,7 @@ export default function InicioClient({ diaSemana, cardapio, lembretes, assinatur
       <div>
         <SectionTitle>Seu plano</SectionTitle>
         <Card>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primaria/10 text-primaria">
                 <Icon name="wallet" size={20} />
@@ -103,7 +103,7 @@ export default function InicioClient({ diaSemana, cardapio, lembretes, assinatur
             </div>
             <Button
               variant="secondary"
-              className="w-auto shrink-0 !px-4 !py-2 text-xs"
+              className="w-full shrink-0 !px-4 !py-2 text-xs sm:w-auto sm:max-w-fit"
               onClick={() => setModal("planos")}
             >
               {assinatura ? "Mudar" : "Assinar"}
@@ -169,11 +169,11 @@ export default function InicioClient({ diaSemana, cardapio, lembretes, assinatur
           {planos.map((plano) => (
             <div
               key={plano.id}
-              className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
+              className={`flex flex-col items-start gap-3 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
                 assinatura?.planoId === plano.id ? "border-primaria bg-primaria/5" : "border-borda bg-white"
               }`}
             >
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-bold text-primaria-escura">{plano.nome}</p>
                 <p className="text-xs text-texto-suave">{plano.descricao}</p>
                 <p className="mt-1 text-sm font-extrabold text-primaria">
@@ -182,7 +182,7 @@ export default function InicioClient({ diaSemana, cardapio, lembretes, assinatur
                 </p>
               </div>
               <Button
-                className="w-auto shrink-0 !px-4 !py-2 text-xs"
+                className="w-full shrink-0 !px-4 !py-2 text-xs sm:w-auto sm:max-w-fit"
                 loading={isPending}
                 onClick={() => handleAssinar(plano.id)}
               >
