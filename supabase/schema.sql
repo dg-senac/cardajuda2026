@@ -1,22 +1,13 @@
 -- ============================================================================
--- 01_schema.sql  --  Schema do Carda Ajuda para Supabase / PostgreSQL
+-- schema.sql  --  Schema do Carda Ajuda para Supabase / PostgreSQL
 -- ============================================================================
--- Gerado a partir de src/db/schema.ts com `drizzle-kit generate`, ou seja:
--- bate exatamente com o que o codigo espera. Nao foi escrito a mao.
+-- Baseado em src/db/schema.ts; inclui as chaves estrangeiras e os índices usados
+-- pelo app. As 13 tabelas ficam no schema public.
 --
--- * Idempotente: pode rodar de novo sem quebrar (IF NOT EXISTS / DROP IF EXISTS).
--- * NAO apaga dados. Se quiser zerar tudo, veja 99_reset_destrutivo.sql.
--- * Requer PostgreSQL 13+ (gen_random_uuid() nativo). Supabase = 15/17. OK.
+-- * Idempotente: pode rodar de novo sem apagar dados.
+-- * NAO apaga tabelas nem linhas. Para um reset destrutivo, leia reset.sql.
+-- * Requer PostgreSQL 13+ (gen_random_uuid() nativo; Supabase atual = OK).
 -- ============================================================================
-
--- gen_random_uuid() e nativo no PostgreSQL 13+ (Supabase = 15/17), entao esta
--- linha e so rede de seguranca para projeto antigo. Se ela falhar por falta de
--- privilegio, o bloco apenas avisa e segue: nao e necessario.
-do $$ begin
-  create extension if not exists "pgcrypto";
-exception when insufficient_privilege then
-  raise notice 'pgcrypto nao instalado (sem privilegio). Sem problema: gen_random_uuid() e nativo no PG13+.';
-end $$;
 
 -- ---------------------------------------------------------------------------
 -- TABELAS
@@ -297,11 +288,12 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- CONFERENCIA: deve retornar 13 linhas, todas com colunas_ok = true.
+-- CONFERENCIA: deve retornar as 13 tabelas; rls_ativo deve ser false em todas.
 -- ---------------------------------------------------------------------------
 select c.relname as tabela,
        (select count(*) from information_schema.columns x
-         where x.table_schema='public' and x.table_name = c.relname) as n_colunas
+         where x.table_schema='public' and x.table_name = c.relname) as n_colunas,
+       c.relrowsecurity as rls_ativo
 from pg_class c
 where c.relnamespace = 'public'::regnamespace
   and c.relkind = 'r'

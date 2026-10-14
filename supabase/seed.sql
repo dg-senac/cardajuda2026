@@ -1,12 +1,12 @@
 -- ============================================================================
--- 02_seed.sql  --  Dados de exemplo (OPCIONAL, mas necessario para logar)
+-- seed.sql  --  Dados de exemplo (opcional, mas necessário para logar)
 -- ============================================================================
--- Sem isto o banco fica vazio e nao existe nenhuma conta para entrar.
--- Senha de TODOS os usuarios de teste: 123456
--- (hash bcrypt custo 10, o mesmo formato que signupPacienteAction grava)
+-- Sem este arquivo o banco fica vazio e não há contas de demonstração.
+-- Senha de TODOS os usuários de teste: 123456.
+-- (Hash bcrypt custo 10, o mesmo formato que signupPacienteAction grava.)
 --
--- Idempotente: usa ON CONFLICT DO NOTHING, pode rodar de novo.
--- Rode 01_schema.sql antes.
+-- Idempotente: usa ON CONFLICT DO NOTHING e NOT EXISTS; pode rodar de novo.
+-- Rode schema.sql antes.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -110,12 +110,11 @@ insert into "public"."lembretes" (id, paciente_id, texto, horario, ativo) values
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
--- Cardapio da semana: 7 dias x 4 refeicoes = 28 linhas.
--- ATENCAO A GRAFIA: getCardapioDoDia() faz um WHERE dia_semana = <nome> com
--- comparacao EXATA. Os nomes abaixo precisam ser byte-a-byte iguais ao array
--- DIAS_SEMANA de src/lib/queries.ts, acentos incluidos: 'Terça-feira' e
--- 'Sábado'. Se alguem tirar o acento aqui, o cardapio some da tela sem dar
--- erro nenhum. Este arquivo e UTF-8; o SQL Editor do Supabase aceita UTF-8.
+-- Cardápio da semana: 7 dias x 4 refeições = 28 linhas.
+-- ATENÇÃO À GRAFIA: getCardapioDoDia() compara dia_semana por igualdade exata.
+-- Os nomes precisam ser iguais ao array DIAS_SEMANA de src/lib/queries.ts,
+-- inclusive acentos: 'Terça-feira' e 'Sábado'. O NOT EXISTS evita duplicar as
+-- combinações dia/refeição quando este seed for executado novamente.
 -- ---------------------------------------------------------------------------
 insert into "public"."cardapio_semanal" (dia_semana, refeicao, descricao)
 select d.dia, r.refeicao, r.descricao
