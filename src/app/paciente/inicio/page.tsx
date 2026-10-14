@@ -23,12 +23,23 @@ export default async function PacienteInicioPage() {
     listPlanos(),
   ]);
 
+  const dataFormatada = new Date().toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
   return (
     <>
       <Header avatarName={profile.nome} avatarHref="/paciente/perfil" />
-      <main className="flex-1 px-4 pb-6 pt-4">
-        <h1 className="mb-1 text-lg font-extrabold text-primaria-escura">Olá, {profile.nome.split(" ")[0]} 👋</h1>
-        <p className="mb-4 text-sm text-texto/70">Cuide do seu coração todos os dias.</p>
+      <main className="flex-1 px-4 pb-6 pt-5">
+        <div className="mb-5 animate-fade-in">
+          <p className="text-xs font-semibold capitalize text-texto-suave">{dataFormatada}</p>
+          <h1 className="mt-0.5 text-2xl font-extrabold text-primaria-escura">
+            Olá, {profile.nome.split(" ")[0]} 👋
+          </h1>
+          <p className="mt-1 text-sm text-texto-suave">Cuide do seu coração todos os dias.</p>
+        </div>
 
         <InicioClient
           diaSemana={diaSemana}

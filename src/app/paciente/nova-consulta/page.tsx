@@ -9,7 +9,7 @@ export default async function NovaConsultaPage() {
 
   return (
     <>
-      <Header title="Consulta" backHref="/paciente/consultas" />
+      <Header title="Nova consulta" subtitle="Agende seu atendimento" backHref="/paciente/consultas" />
       <main className="flex-1 px-4 pb-8 pt-4">
         <NovaConsultaForm nomePaciente={profile.nome} />
       </main>

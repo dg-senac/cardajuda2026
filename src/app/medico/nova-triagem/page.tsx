@@ -11,7 +11,7 @@ export default async function MedicoNovaTriagemPage() {
 
   return (
     <>
-      <Header title="Triagem" backHref="/medico/consultas" />
+      <Header title="Nova triagem" subtitle="Atendimento de triagem" backHref="/medico/consultas" />
       <main className="flex-1 px-4 pb-8 pt-4">
         <NovaTriagemForm pacientes={pacientes.map((p) => ({ id: p.id, nome: p.nome, cpf: p.cpf }))} />
       </main>

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import toast from "react-hot-toast";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
+import Icon from "@/components/Icon";
 import Input from "@/components/Input";
 import { updateProfileAction } from "@/lib/actions/misc";
 
@@ -35,21 +36,31 @@ export default function MedicoPerfilEditClient({ nome, telefone, especialidade, 
 
   if (!editing) {
     return (
-      <Card className="mb-4" hover onClick={() => setEditing(true)}>
-        <p className="text-sm font-bold text-primaria-escura">✏️ Editar dados profissionais</p>
-        <p className="text-xs text-texto/60">Atualize seu nome, telefone, especialidade e formação</p>
+      <Card hover onClick={() => setEditing(true)} className="!flex !items-center !gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primaria/10 text-primaria">
+          <Icon name="edit" size={19} />
+        </span>
+        <div className="flex-1">
+          <p className="text-sm font-bold text-primaria-escura">Editar dados profissionais</p>
+          <p className="text-xs text-texto-suave">Atualize nome, telefone, especialidade e formação</p>
+        </div>
+        <Icon name="chevron-right" size={17} className="text-texto-suave" />
       </Card>
     );
   }
 
   return (
-    <div className="mb-4 animate-fade-in rounded-2xl bg-white p-4 shadow-[0_4px_12px_rgba(139,0,139,0.15)]">
+    <div className="animate-fade-in rounded-3xl border border-borda bg-white p-5 shadow-card">
       <form action={handleSubmit} className="flex flex-col gap-3">
         <Input label="Nome completo" name="nome" defaultValue={nome} required />
         <Input label="Telefone" name="telefone" defaultValue={telefone} required />
         <Input label="Especialidade" name="especialidade" defaultValue={especialidade} />
         <Input label="Formação" name="formacao" defaultValue={formacao} />
-        {error ? <p className="text-xs font-semibold text-status-alerta">{error}</p> : null}
+        {error ? (
+          <p className="rounded-xl bg-status-alerta-claro px-3 py-2 text-xs font-semibold text-status-alerta">
+            {error}
+          </p>
+        ) : null}
         <div className="flex gap-2">
           <Button type="submit" loading={isPending}>
             Salvar

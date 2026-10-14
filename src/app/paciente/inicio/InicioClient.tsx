@@ -1,10 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import toast from "react-hot-toast";
 import Card from "@/components/Card";
-import Button from "@/components/Button";
+import Button, { ButtonLink } from "@/components/Button";
+import Icon from "@/components/Icon";
+import Modal from "@/components/Modal";
+import SectionTitle from "@/components/SectionTitle";
 import { assinarPlanoAction } from "@/lib/actions/misc";
 import type { Assinatura, CardapioItem, Lembrete, Plano } from "@/types";
 
@@ -48,127 +50,148 @@ export default function InicioClient({ diaSemana, cardapio, lembretes, assinatur
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => setModal("lembretes")} className="text-left">
-          <Card hover>
-            <p className="text-2xl">⏰</p>
-            <p className="mt-1 text-sm font-bold text-primaria-escura">Lembretes</p>
-            <p className="text-xs text-texto/60">{lembretes.length} ativo(s)</p>
-          </Card>
-        </button>
-        <button onClick={() => setModal("info")} className="text-left">
-          <Card hover>
-            <p className="text-2xl">💡</p>
-            <p className="mt-1 text-sm font-bold text-primaria-escura">Dica do dia</p>
-            <p className="text-xs text-texto/60">Informações de saúde</p>
-          </Card>
-        </button>
+        <Card hover onClick={() => setModal("lembretes")} className="flex flex-col gap-1">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primaria/10 text-primaria">
+            <Icon name="clock" size={20} />
+          </span>
+          <p className="text-sm font-bold text-primaria-escura">Lembretes</p>
+          <p className="text-xs text-texto-suave">{lembretes.length} ativo(s)</p>
+        </Card>
+        <Card hover onClick={() => setModal("info")} className="flex flex-col gap-1">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-status-atencao/15 text-status-atencao">
+            <Icon name="lightbulb" size={20} />
+          </span>
+          <p className="text-sm font-bold text-primaria-escura">Dica do dia</p>
+          <p className="text-xs text-texto-suave">Dicas para seu coração</p>
+        </Card>
       </div>
 
-      <Card variant="primary">
-        <p className="text-xs uppercase tracking-wide text-white/70">Cardápio de {diaSemana}</p>
-        {cardapio.length === 0 ? (
-          <p className="mt-2 text-sm text-white/90">Nenhum cardápio cadastrado para hoje.</p>
+      <div>
+        <SectionTitle>Cardápio de {diaSemana.toLowerCase()}</SectionTitle>
+        <Card variant="primary" className="shadow-[0_8px_24px_rgba(139,0,139,0.35)]">
+          {cardapio.length === 0 ? (
+            <p className="text-sm text-white/90">Nenhum cardápio cadastrado para hoje.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {cardapio.map((item) => (
+                <li key={item.id} className="rounded-xl bg-white/12 px-3 py-2.5">
+                  <p className="text-sm font-bold">{item.refeicao}</p>
+                  <p className="text-xs leading-relaxed text-white/85">{item.descricao}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      <div>
+        <SectionTitle>Seu plano</SectionTitle>
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primaria/10 text-primaria">
+                <Icon name="wallet" size={20} />
+              </span>
+              <div>
+                <p className="text-sm font-bold text-primaria-escura">{assinatura?.planoNome ?? "Nenhum plano ativo"}</p>
+                <p className="text-xs text-texto-suave">
+                  {assinatura ? "Assinatura vigente" : "Escolha um plano para aproveitar tudo"}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              className="w-auto shrink-0 !px-4 !py-2 text-xs"
+              onClick={() => setModal("planos")}
+            >
+              {assinatura ? "Mudar" : "Assinar"}
+            </Button>
+          </div>
+        </Card>
+      </div>
+
+      <div>
+        <SectionTitle>Atalhos</SectionTitle>
+        <div className="flex flex-col gap-2.5">
+          <ButtonLink href="/paciente/historico-consultas" variant="secondary" className="!justify-between !rounded-2xl">
+            <span className="flex items-center gap-3">
+              <Icon name="clipboard" size={19} />
+              Histórico de consultas
+            </span>
+            <Icon name="chevron-right" size={17} />
+          </ButtonLink>
+          <ButtonLink href="/paciente/medicos" variant="secondary" className="!justify-between !rounded-2xl">
+            <span className="flex items-center gap-3">
+              <Icon name="stethoscope" size={19} />
+              Médicos disponíveis
+            </span>
+            <Icon name="chevron-right" size={17} />
+          </ButtonLink>
+        </div>
+      </div>
+
+      <Modal open={modal === "lembretes"} title="Lembretes diários" onClose={() => setModal(null)}>
+        {lembretes.length === 0 ? (
+          <p className="text-sm text-texto-suave">Você ainda não tem lembretes cadastrados.</p>
         ) : (
-          <ul className="mt-2 flex flex-col gap-2">
-            {cardapio.map((item) => (
-              <li key={item.id} className="rounded-xl bg-white/10 px-3 py-2">
-                <p className="text-sm font-bold">{item.refeicao}</p>
-                <p className="text-xs text-white/85">{item.descricao}</p>
+          <ul className="flex flex-col gap-2">
+            {lembretes.map((lembrete) => (
+              <li
+                key={lembrete.id}
+                className="flex items-center gap-3 rounded-2xl border border-borda bg-fundo-rosa px-3 py-2.5"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-primaria">
+                  <Icon name="clock" size={17} />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-primaria-escura">{lembrete.horario}</p>
+                  <p className="text-xs text-texto-suave">{lembrete.texto}</p>
+                </div>
               </li>
             ))}
           </ul>
         )}
-      </Card>
+      </Modal>
 
-      <Card>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-primaria-escura/70">Seu plano</p>
-            <p className="text-base font-bold text-primaria-escura">{assinatura?.planoNome ?? "Nenhum plano ativo"}</p>
-          </div>
-          <Button variant="secondary" className="w-auto px-4 py-2 text-xs" onClick={() => setModal("planos")}>
-            {assinatura ? "Mudar plano" : "Assinar plano"}
-          </Button>
+      <Modal open={modal === "info"} title="Dica de saúde do dia" onClose={() => setModal(null)}>
+        <div className="flex items-start gap-3 rounded-2xl bg-status-atencao-claro px-4 py-4">
+          <span className="mt-0.5 text-status-atencao">
+            <Icon name="lightbulb" size={22} />
+          </span>
+          <p className="text-sm leading-relaxed text-texto">{dicaDoDia()}</p>
         </div>
-      </Card>
+      </Modal>
 
-      <div className="grid grid-cols-1 gap-3">
-        <Link href="/paciente/historico-consultas">
-          <Card hover>
-            <p className="text-sm font-bold text-primaria-escura">📋 Histórico de consultas</p>
-            <p className="text-xs text-texto/60">Veja suas consultas anteriores</p>
-          </Card>
-        </Link>
-        <Link href="/paciente/medicos">
-          <Card hover>
-            <p className="text-sm font-bold text-primaria-escura">👨‍⚕️ Médicos disponíveis</p>
-            <p className="text-xs text-texto/60">Conheça nossos profissionais</p>
-          </Card>
-        </Link>
-      </div>
-
-      {modal ? (
-        <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 px-0 sm:items-center" onClick={() => setModal(null)}>
-          <div
-            className="w-full max-w-md animate-fade-in rounded-t-3xl bg-white p-5 sm:rounded-3xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {modal === "lembretes" ? (
-              <>
-                <h2 className="mb-3 text-base font-extrabold text-primaria-escura">Lembretes diários</h2>
-                {lembretes.length === 0 ? (
-                  <p className="text-sm text-texto/60">Você ainda não tem lembretes cadastrados.</p>
-                ) : (
-                  <ul className="flex flex-col gap-2">
-                    {lembretes.map((lembrete) => (
-                      <li key={lembrete.id} className="rounded-xl bg-fundo-rosa px-3 py-2 text-sm">
-                        <span className="font-bold text-primaria-escura">{lembrete.horario}</span> — {lembrete.texto}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : null}
-
-            {modal === "info" ? (
-              <>
-                <h2 className="mb-3 text-base font-extrabold text-primaria-escura">Dica de saúde do dia</h2>
-                <p className="text-sm text-texto/80">{dicaDoDia()}</p>
-              </>
-            ) : null}
-
-            {modal === "planos" ? (
-              <>
-                <h2 className="mb-3 text-base font-extrabold text-primaria-escura">Planos disponíveis</h2>
-                <div className="flex flex-col gap-2">
-                  {planos.map((plano) => (
-                    <div key={plano.id} className="flex items-center justify-between rounded-xl bg-fundo-rosa px-3 py-2">
-                      <div>
-                        <p className="text-sm font-bold text-primaria-escura">{plano.nome}</p>
-                        <p className="text-xs text-texto/60">{plano.descricao}</p>
-                        <p className="text-xs font-semibold text-primaria">R$ {plano.preco.toFixed(2)}/mês</p>
-                      </div>
-                      <Button
-                        className="w-auto px-3 py-1.5 text-xs"
-                        disabled={isPending}
-                        onClick={() => handleAssinar(plano.id)}
-                      >
-                        Assinar
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : null}
-
-            <Button variant="secondary" className="mt-4" onClick={() => setModal(null)}>
-              Fechar
-            </Button>
-          </div>
+      <Modal open={modal === "planos"} title="Planos disponíveis" onClose={() => setModal(null)}>
+        <div className="flex flex-col gap-2.5">
+          {planos.map((plano) => (
+            <div
+              key={plano.id}
+              className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
+                assinatura?.planoId === plano.id ? "border-primaria bg-primaria/5" : "border-borda bg-white"
+              }`}
+            >
+              <div>
+                <p className="text-sm font-bold text-primaria-escura">{plano.nome}</p>
+                <p className="text-xs text-texto-suave">{plano.descricao}</p>
+                <p className="mt-1 text-sm font-extrabold text-primaria">
+                  R$ {plano.preco.toFixed(2)}
+                  <span className="text-xs font-semibold text-texto-suave">/mês</span>
+                </p>
+              </div>
+              <Button
+                className="w-auto shrink-0 !px-4 !py-2 text-xs"
+                loading={isPending}
+                onClick={() => handleAssinar(plano.id)}
+              >
+                {assinatura?.planoId === plano.id ? "Atual" : "Assinar"}
+              </Button>
+            </div>
+          ))}
         </div>
-      ) : null}
+      </Modal>
     </div>
   );
 }

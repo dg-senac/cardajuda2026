@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Card from "@/components/Card";
+import EmptyState from "@/components/EmptyState";
+import SearchInput from "@/components/SearchInput";
 
 interface Item {
   id: string;
@@ -24,29 +26,38 @@ export default function HistoricoSearch({ items }: { items: Item[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Sem consultas e triagens salvas..."
-        className="w-full rounded-xl border-2 border-primaria bg-fundo-rosa px-4 py-2.5 text-sm text-texto outline-none focus:ring-2 focus:ring-primaria"
-      />
+      <SearchInput value={query} onChange={setQuery} placeholder="Buscar paciente pelo nome..." />
 
-      <div className="flex flex-col gap-2">
-        {filtered.map((item) => (
-          <Card key={`${item.tipo}-${item.id}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-bold text-primaria-escura">
-                {item.tipo === "Consulta" ? "💜" : "🩺"} {item.nome}
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon="clipboard"
+          title="Nenhum registro encontrado"
+          description="Consultas e triagens realizadas aparecerão aqui."
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {filtered.map((item) => (
+            <Card key={`${item.tipo}-${item.id}`} className="!p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-primaria-escura">{item.nome}</p>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-wide ${
+                    item.tipo === "Consulta"
+                      ? "bg-primaria/10 text-primaria"
+                      : "bg-status-atencao-claro text-status-atencao"
+                  }`}
+                >
+                  {item.tipo}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-texto-suave">
+                {item.dataFormatada} às {item.horario}
               </p>
-              <span className="text-[10px] font-bold uppercase text-primaria">{item.tipo}</span>
-            </div>
-            <p className="mt-1 text-xs text-texto/60">
-              {item.dataFormatada} às {item.horario}
-            </p>
-            <p className="text-xs text-texto/60">{item.detalhe}</p>
-          </Card>
-        ))}
-      </div>
+              <p className="text-xs text-texto-suave">{item.detalhe}</p>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

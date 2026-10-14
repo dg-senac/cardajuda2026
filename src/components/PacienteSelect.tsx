@@ -23,8 +23,8 @@ export default function PacienteSelect({ pacientes }: { pacientes: PacienteOptio
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-semibold text-primaria-escura" htmlFor="nome_paciente">
-        Nome do paciente
+      <label className="mb-1.5 block text-[13px] font-bold text-primaria-escura" htmlFor="nome_paciente">
+        Paciente
       </label>
       <input
         id="nome_paciente"
@@ -35,7 +35,7 @@ export default function PacienteSelect({ pacientes }: { pacientes: PacienteOptio
         placeholder="Digite o nome ou CPF do paciente"
         required
         autoComplete="off"
-        className="w-full rounded-xl border-2 border-primaria bg-fundo-rosa px-4 py-2.5 text-sm text-texto outline-none focus:ring-2 focus:ring-primaria"
+        className="field"
       />
       <datalist id={listId}>
         {pacientes.map((p) => (
@@ -44,7 +44,7 @@ export default function PacienteSelect({ pacientes }: { pacientes: PacienteOptio
       </datalist>
       <input type="hidden" name="paciente_id" value={pacienteId} />
       {nome && !pacienteId ? (
-        <p className="mt-1 text-xs font-semibold text-status-atencao">
+        <p className="mt-1.5 rounded-xl bg-status-atencao-claro px-3 py-1.5 text-xs font-semibold text-status-atencao">
           Paciente não encontrado. Selecione um nome da lista.
         </p>
       ) : null}

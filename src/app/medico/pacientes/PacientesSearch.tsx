@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import Card from "@/components/Card";
+import EmptyState from "@/components/EmptyState";
+import Icon from "@/components/Icon";
+import SearchInput from "@/components/SearchInput";
 import StatusIcon from "@/components/StatusIcon";
 import type { StatusMedicao } from "@/types";
 
@@ -19,7 +22,7 @@ interface PacienteItem {
 
 const FILTROS = [
   { key: "todos", label: "Todos" },
-  { key: "alerta", label: "Alertas" },
+  { key: "alerta", label: "Atenção" },
 ] as const;
 
 export default function PacientesSearch({ items }: { items: PacienteItem[] }) {
@@ -33,28 +36,24 @@ export default function PacientesSearch({ items }: { items: PacienteItem[] }) {
     }
     if (query.trim()) {
       const q = query.toLowerCase();
-      result = result.filter((item) => item.nome.toLowerCase().includes(q));
+      result = result.filter(
+        (item) => item.nome.toLowerCase().includes(q) || String(item.idade).includes(q),
+      );
     }
     return result;
   }, [items, query, filtro]);
 
   return (
     <div className="flex flex-col gap-3">
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Buscar por nome, CPF ou prontuário"
-        className="w-full rounded-xl border-2 border-primaria bg-fundo-rosa px-4 py-2.5 text-sm text-texto outline-none focus:ring-2 focus:ring-primaria"
-      />
+      <SearchInput value={query} onChange={setQuery} placeholder="Buscar paciente pelo nome..." />
 
-      <div className="flex gap-2">
+      <div className="segmented">
         {FILTROS.map((f) => (
           <button
             key={f.key}
+            type="button"
             onClick={() => setFiltro(f.key)}
-            className={`flex-1 rounded-full px-3 py-2 text-xs font-bold transition ${
-              filtro === f.key ? "bg-primaria text-white" : "bg-white text-primaria border-2 border-primaria"
-            }`}
+            className={`segmented-btn ${filtro === f.key ? "segmented-btn-active" : ""}`}
           >
             {f.label}
           </button>
@@ -62,21 +61,23 @@ export default function PacientesSearch({ items }: { items: PacienteItem[] }) {
       </div>
 
       {filtered.length === 0 ? (
-        <Card>
-          <p className="text-sm text-texto/60">Nenhum paciente encontrado.</p>
-        </Card>
+        <EmptyState
+          icon="search"
+          title="Nenhum paciente encontrado"
+          description="Tente buscar por outro nome ou limpar os filtros."
+        />
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           {filtered.map((item) => (
-            <Card key={item.id}>
+            <Card key={item.id} className="!p-3.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primaria text-sm font-bold text-white">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primaria to-primaria-escura text-sm font-bold text-white">
                     {item.nome.trim().charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <p className="text-sm font-bold text-primaria-escura">{item.nome}</p>
-                    <p className="text-xs text-texto/60">
+                    <p className="text-xs text-texto-suave">
                       {item.idade} anos {item.genero.charAt(0)}
                       {item.sistolica ? ` · PA ${item.sistolica}/${item.diastolica}` : ""}
                       {item.glicemia ? ` · Glic. ${item.glicemia}` : ""}
@@ -87,9 +88,10 @@ export default function PacientesSearch({ items }: { items: PacienteItem[] }) {
               </div>
               <Link
                 href={`/medico/paciente/${item.id}`}
-                className="mt-2 block text-right text-xs font-bold text-link hover:underline"
+                className="mt-2.5 flex items-center justify-end gap-1 text-xs font-bold text-link hover:underline"
               >
-                Ver detalhes →
+                Ver detalhes
+                <Icon name="chevron-right" size={13} />
               </Link>
             </Card>
           ))}

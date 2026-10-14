@@ -6,6 +6,8 @@ import toast from "react-hot-toast";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import PacienteSelect from "@/components/PacienteSelect";
+import SectionTitle from "@/components/SectionTitle";
+import Textarea from "@/components/Textarea";
 import { createConsultaMedicoAction } from "@/lib/actions/consultas";
 
 export default function NovaConsultaMedicoForm({
@@ -33,28 +35,25 @@ export default function NovaConsultaMedicoForm({
   }
 
   return (
-    <div className="animate-fade-in rounded-2xl bg-white p-5 shadow-[0_4px_12px_rgba(139,0,139,0.15)]">
-      <form action={handleSubmit} className="flex flex-col gap-3">
-        <PacienteSelect pacientes={pacientes} />
-        <Input label="Data" type="date" name="data" required />
-        <Input label="Horário" type="time" name="horario" required />
-        <Input label="Profissional" name="profissional" placeholder="Nome do profissional" required />
-        <Input label="Especialidade" name="especialidade" placeholder="Ex: Cardiologia" required />
-        <div>
-          <label className="mb-1 block text-sm font-semibold text-primaria-escura" htmlFor="motivo">
-            Motivo da consulta
-          </label>
-          <textarea
-            id="motivo"
-            name="motivo"
-            rows={3}
-            placeholder="Informe o motivo da consulta"
-            required
-            className="w-full rounded-xl border-2 border-primaria bg-fundo-rosa px-4 py-2.5 text-sm text-texto outline-none focus:ring-2 focus:ring-primaria"
-          />
+    <div className="animate-fade-in rounded-3xl border border-borda bg-white p-5 shadow-card">
+      <form action={handleSubmit} className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
+          <SectionTitle>Dados do atendimento</SectionTitle>
+          <PacienteSelect pacientes={pacientes} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Data" type="date" name="data" required />
+            <Input label="Horário" type="time" name="horario" required />
+          </div>
+          <Input label="Profissional" name="profissional" placeholder="Nome do profissional" required />
+          <Input label="Especialidade" name="especialidade" placeholder="Ex: Cardiologia" required />
+          <Textarea label="Motivo da consulta" name="motivo" placeholder="Informe o motivo da consulta" required />
         </div>
 
-        {error ? <p className="text-xs font-semibold text-status-alerta">{error}</p> : null}
+        {error ? (
+          <p className="rounded-xl bg-status-alerta-claro px-3 py-2 text-xs font-semibold text-status-alerta">
+            {error}
+          </p>
+        ) : null}
 
         <Button type="submit" loading={isPending}>
           Salvar consulta
