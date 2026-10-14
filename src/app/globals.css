@@ -1,25 +1,46 @@
 @import "tailwindcss";
 
 @theme {
+  /* Cores da marca */
   --color-primaria: #8b008b;
-  --color-primaria-hover: #6e006e;
+  --color-primaria-hover: #750075;
   --color-primaria-escura: #4b0049;
-  --color-fundo-rosa: #ffe4f3;
-  --color-fundo-rosa-2: #f8d0ea;
-  --color-fundo: #ffffff;
-  --color-borda-input: #8b008b;
-  --color-texto: #1a1a1a;
+  --color-primaria-claro: #b13fb1;
+  --color-primaria-rosa: #f3d4ee;
+
+  /* Superfícies */
+  --color-fundo: #fdf7fb;
+  --color-fundo-rosa: #fdeff7;
+  --color-fundo-rosa-2: #f9d9ec;
+  --color-borda: #f0dcec;
+  --color-borda-forte: #e2c2dc;
+
+  /* Texto */
+  --color-texto: #26122a;
+  --color-texto-suave: #6b5468;
   --color-texto-claro: #ffffff;
-  --color-placeholder: #9a7a95;
+  --color-placeholder: #b08fa9;
   --color-link: #8b008b;
+
+  /* Status */
   --color-status-normal: #2e9e4f;
-  --color-status-atencao: #f2a900;
+  --color-status-normal-claro: #e4f6e9;
+  --color-status-atencao: #e09400;
+  --color-status-atencao-claro: #fdf2dc;
   --color-status-alerta: #d62839;
+  --color-status-alerta-claro: #fde8ea;
 
-  --shadow-card: 0 4px 12px rgba(139, 0, 139, 0.15);
-  --shadow-card-hover: 0 8px 20px rgba(139, 0, 139, 0.25);
+  /* Sombras */
+  --shadow-card: 0 2px 12px rgba(139, 0, 139, 0.08);
+  --shadow-card-hover: 0 12px 28px rgba(139, 0, 139, 0.18);
+  --shadow-nav: 0 -6px 24px rgba(139, 0, 139, 0.1);
+  --shadow-float: 0 8px 30px rgba(75, 0, 73, 0.25);
 
-  --font-sans: "Open Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Open Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --animate-fade-in: fadeIn 0.35s ease-out;
+  --animate-pop-in: popIn 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --animate-sheet-in: sheetIn 0.32s cubic-bezier(0.2, 0.8, 0.25, 1);
 }
 
 :root {
@@ -32,37 +53,65 @@
 
 html,
 body {
-  background: var(--color-fundo-rosa);
+  background: var(--color-fundo);
   color: var(--color-texto);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   min-height: 100dvh;
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(139, 0, 139, 0.12), transparent 60%),
+    linear-gradient(180deg, var(--color-fundo-rosa) 0%, var(--color-fundo) 30%, var(--color-fundo) 100%);
+  background-attachment: fixed;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-fundo-rosa);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-primaria);
+  background: rgba(139, 0, 139, 0.35);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primaria-hover);
+  background: var(--color-primaria);
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
   }
   to {
     opacity: 1;
@@ -71,17 +120,25 @@ body {
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: var(--animate-fade-in);
+}
+
+.animate-pop-in {
+  animation: var(--animate-pop-in);
+}
+
+.animate-sheet-in {
+  animation: var(--animate-sheet-in);
 }
 
 .app-shell {
   max-width: 28rem;
   margin: 0 auto;
   min-height: 100dvh;
-  background: var(--color-fundo-rosa);
   position: relative;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 0 60px rgba(139, 0, 139, 0.12);
 }
 
 a {
@@ -97,4 +154,75 @@ select {
 input::placeholder,
 textarea::placeholder {
   color: var(--color-placeholder);
+}
+
+/* Campo de formulário unificado */
+.field {
+  width: 100%;
+  border-radius: 14px;
+  border: 1.5px solid var(--color-borda-forte);
+  background: #fff;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--color-texto);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field:focus {
+  border-color: var(--color-primaria);
+  box-shadow: 0 0 0 3px rgba(139, 0, 139, 0.15);
+}
+
+.field:disabled,
+.field:read-only {
+  background: var(--color-fundo-rosa);
+  color: var(--color-texto-suave);
+}
+
+select.field {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238b008b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  padding-right: 2.25rem;
+}
+
+/* Texto utilitário */
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-primaria-escura);
+}
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-borda-forte), transparent);
+}
+
+/* Segmented control (filtros) */
+.segmented {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: rgba(139, 0, 139, 0.08);
+  border-radius: 999px;
+}
+
+.segmented-btn {
+  flex: 1;
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-primaria-escura);
+  transition: all 0.18s ease;
+}
+
+.segmented-btn-active {
+  background: var(--color-primaria);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(139, 0, 139, 0.35);
 }

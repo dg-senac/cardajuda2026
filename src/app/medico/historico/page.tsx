@@ -1,7 +1,7 @@
-import Link from "next/link";
 import Header from "@/components/Header";
-import Card from "@/components/Card";
-import Button from "@/components/Button";
+import SectionTitle from "@/components/SectionTitle";
+import { ButtonLink } from "@/components/Button";
+import Icon from "@/components/Icon";
 import { requireProfile } from "@/lib/actions/auth";
 import { listConsultasByMedico, listTriagensByMedico } from "@/lib/queries";
 import { formatDate } from "@/lib/validations";
@@ -37,24 +37,23 @@ export default async function MedicoHistoricoPage() {
 
   return (
     <>
-      <Header title="Histórico" backHref="/medico/consultas" />
+      <Header title="Histórico" subtitle="Consultas e triagens realizadas" backHref="/medico/consultas" />
       <main className="flex-1 px-4 pb-8 pt-4">
         <HistoricoSearch items={items.map((i) => ({ ...i, dataFormatada: formatDate(i.data) }))} />
 
-        <div className="mt-4 flex flex-col gap-3">
-          <Link href="/medico/nova-triagem">
-            <Button>Nova Triagem</Button>
-          </Link>
-          <Link href="/medico/nova-consulta">
-            <Button>Nova Consulta</Button>
-          </Link>
+        <div className="mt-6">
+          <SectionTitle>Registrar novo atendimento</SectionTitle>
+          <div className="flex flex-col gap-2.5">
+            <ButtonLink href="/medico/nova-triagem">
+              <Icon name="stethoscope" size={18} />
+              Nova triagem
+            </ButtonLink>
+            <ButtonLink href="/medico/nova-consulta" variant="secondary">
+              <Icon name="plus" size={18} />
+              Nova consulta
+            </ButtonLink>
+          </div>
         </div>
-
-        {items.length === 0 ? (
-          <Card className="mt-4">
-            <p className="text-sm text-texto/60">Nenhum registro encontrado.</p>
-          </Card>
-        ) : null}
       </main>
     </>
   );

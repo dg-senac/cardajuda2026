@@ -7,6 +7,8 @@ import toast from "react-hot-toast";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import Logo from "@/components/Logo";
+import SectionTitle from "@/components/SectionTitle";
+import Select from "@/components/Select";
 import { signupMedicoAction } from "@/lib/actions/auth";
 
 export default function CadastroMedicoForm() {
@@ -30,53 +32,58 @@ export default function CadastroMedicoForm() {
   }
 
   return (
-    <div className="w-full max-w-sm animate-fade-in rounded-2xl bg-white p-6 shadow-[0_4px_12px_rgba(139,0,139,0.15)]">
-      <div className="mb-6 flex flex-col items-center gap-1">
-        <Logo size={26} />
-        <h1 className="text-base font-extrabold text-primaria-escura">Cadastro de médico(a)</h1>
+    <div className="w-full max-w-sm">
+      <div className="mb-6 flex animate-fade-in flex-col items-center gap-2">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-card">
+          <Logo size={28} />
+        </div>
+        <h1 className="text-xl font-extrabold text-primaria-escura">Cadastro de médico(a)</h1>
+        <p className="text-center text-sm text-texto-suave">Crie sua conta profissional para acompanhar pacientes.</p>
       </div>
 
-      <form action={handleSubmit} className="flex flex-col gap-3">
-        <Input label="Nome completo" name="nome" placeholder="Digite seu nome completo" required />
-        <Input label="CRM" name="crm" placeholder="Ex: CRM/SP 123456" required />
-        <Input label="Especialidade" name="especialidade" placeholder="Ex: Cardiologia" required />
-        <Input label="Formação" name="formacao" placeholder="Ex: USP - 2010" required />
-        <Input label="Telefone" name="telefone" placeholder="(00) 00000-0000" required />
-        <Input label="Email" type="email" name="email" placeholder="seuemail@exemplo.com" required />
-        <Input label="Senha" type="password" name="senha" placeholder="Mínimo 6 caracteres" required />
+      <div className="animate-fade-in rounded-3xl border border-borda bg-white p-6 shadow-card">
+        <form action={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
+            <SectionTitle>Dados profissionais</SectionTitle>
+            <Input label="Nome completo" name="nome" placeholder="Digite seu nome completo" required />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="CRM" name="crm" placeholder="Ex: CRM/SP 123456" required />
+              <Select label="Gênero" name="genero" required>
+                <option value="Feminino">Feminino</option>
+                <option value="Masculino">Masculino</option>
+                <option value="Outro">Outro</option>
+              </Select>
+            </div>
+            <Input label="Especialidade" name="especialidade" placeholder="Ex: Cardiologia" required />
+            <Input label="Formação" name="formacao" placeholder="Ex: USP - 2010" required />
+            <Input label="Telefone" name="telefone" placeholder="(00) 00000-0000" required />
+          </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-semibold text-primaria-escura" htmlFor="genero">
-            Gênero
-          </label>
-          <select
-            id="genero"
-            name="genero"
-            required
-            className="w-full rounded-xl border-2 border-primaria bg-fundo-rosa px-4 py-2.5 text-sm text-texto outline-none focus:ring-2 focus:ring-primaria"
-            defaultValue=""
-          >
-            <option value="" disabled>
-              Selecione
-            </option>
-            <option value="Feminino">Feminino</option>
-            <option value="Masculino">Masculino</option>
-            <option value="Outro">Outro</option>
-          </select>
-        </div>
+          <div className="divider my-1" />
 
-        {error ? <p className="text-xs font-semibold text-status-alerta">{error}</p> : null}
+          <div className="flex flex-col gap-3">
+            <SectionTitle>Acesso</SectionTitle>
+            <Input label="Email" type="email" name="email" placeholder="seuemail@exemplo.com" required />
+            <Input label="Senha" type="password" name="senha" placeholder="Mínimo 6 caracteres" required />
+          </div>
 
-        <Button type="submit" loading={isPending} className="mt-2">
-          Criar conta
-        </Button>
-      </form>
+          {error ? (
+            <p className="rounded-xl bg-status-alerta-claro px-3 py-2 text-xs font-semibold text-status-alerta">
+              {error}
+            </p>
+          ) : null}
 
-      <div className="mt-6 flex flex-col items-center gap-1 text-sm">
+          <Button type="submit" loading={isPending} className="mt-1">
+            Criar conta
+          </Button>
+        </form>
+      </div>
+
+      <div className="mt-5 mb-2 flex animate-fade-in flex-col items-center gap-2 text-sm">
         <Link href="/login" className="font-bold text-link hover:underline">
           Já tenho conta
         </Link>
-        <Link href="/cadastro-paciente" className="text-primaria-escura/70 hover:underline">
+        <Link href="/cadastro-paciente" className="text-texto-suave hover:underline">
           Sou paciente
         </Link>
       </div>

@@ -2,7 +2,7 @@ import type { StatusMedicao } from "@/types";
 
 const CONFIG: Record<StatusMedicao, { icon: string; bg: string; label: string }> = {
   normal: { icon: "✓", bg: "var(--color-status-normal)", label: "Normal" },
-  atencao: { icon: "⚠", bg: "var(--color-status-atencao)", label: "Atenção" },
+  atencao: { icon: "!", bg: "var(--color-status-atencao)", label: "Atenção" },
   alerta: { icon: "!", bg: "var(--color-status-alerta)", label: "Alerta" },
 };
 
@@ -19,14 +19,14 @@ export default function StatusIcon({
   return (
     <span className="inline-flex items-center gap-2">
       <span
-        className="flex items-center justify-center rounded-full font-bold text-white"
+        className="flex items-center justify-center rounded-full font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)]"
         style={{ backgroundColor: config.bg, width: size, height: size, fontSize: size * 0.55 }}
         aria-label={config.label}
       >
         {config.icon}
       </span>
       {showLabel ? (
-        <span className="text-xs font-semibold" style={{ color: config.bg }}>
+        <span className="text-xs font-bold" style={{ color: config.bg }}>
           {config.label}
         </span>
       ) : null}

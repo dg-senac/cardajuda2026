@@ -22,18 +22,18 @@ export default function ConsultaActions({ consultaId }: { consultaId: string }) 
   }
 
   return (
-    <div className="mt-2 flex gap-2">
+    <div className="mt-3 flex gap-2">
       <button
         disabled={isPending}
         onClick={() => handle("realizada")}
-        className="flex-1 rounded-full bg-status-normal px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-60"
+        className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-status-normal px-3 py-2 text-[11px] font-bold text-white transition hover:brightness-95 disabled:opacity-60 active:scale-[0.98]"
       >
         Marcar realizada
       </button>
       <button
         disabled={isPending}
         onClick={() => handle("cancelada")}
-        className="flex-1 rounded-full bg-status-alerta px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-60"
+        className="flex flex-1 items-center justify-center gap-1.5 rounded-full border-2 border-status-alerta/30 bg-white px-3 py-2 text-[11px] font-bold text-status-alerta transition hover:bg-status-alerta-claro disabled:opacity-60 active:scale-[0.98]"
       >
         Cancelar
       </button>

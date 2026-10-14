@@ -23,20 +23,20 @@ export default function PendenciaItem({ pendencia }: { pendencia: Pendencia & { 
   }
 
   return (
-    <Card>
+    <Card className={`!p-3.5 transition-opacity ${concluida ? "opacity-60" : ""}`}>
       <label className="flex cursor-pointer items-start gap-3">
         <input
           type="checkbox"
           checked={concluida}
           onChange={handleToggle}
           disabled={isPending}
-          className="mt-0.5 h-4 w-4 accent-[var(--color-primaria)]"
+          className="mt-0.5 h-4.5 w-4.5 accent-[var(--color-primaria)]"
         />
         <div>
-          <p className={`text-sm font-bold ${concluida ? "text-texto/40 line-through" : "text-primaria-escura"}`}>
+          <p className={`text-sm font-bold ${concluida ? "text-texto-suave line-through" : "text-primaria-escura"}`}>
             {pendencia.titulo}
           </p>
-          <p className="text-xs text-texto/60">{pendencia.pacienteNome}</p>
+          <p className="text-xs text-texto-suave">{pendencia.pacienteNome}</p>
         </div>
       </label>
     </Card>
