@@ -7,5 +7,5 @@ export default defineConfig([
   // Arquivos de declaração de tipos não têm código para avaliar (o parser do
   // Next só cobre .ts/.tsx; declarações ambientes como "export const X: T;"
   // não são JavaScript válido).
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "**/*.d.mts"]),
+  globalIgnores([".next/**", "www/app.js", "supabase/functions/**", "out/**", "build/**", "next-env.d.ts", "**/*.d.mts"]),
 ]);

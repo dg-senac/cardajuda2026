@@ -1,106 +1,187 @@
-# APK Android (Capacitor)
+# Android: interface local + Supabase Edge Function
 
-O aplicativo Android é um **casco**: ele abre o sistema web (Next.js + banco de dados) que está
-publicado num servidor. Ele **não** guarda pacientes, médicos nem consultas no celular — isso fica
-no Postgres (Supabase) do outro lado do servidor. Por isso, **sem um servidor no ar e sem o
-endereço dele, o APK não tem o que mostrar**.
+O APK **exige internet** para autenticação e dados. Não precisa de Next.js publicado,
+Vercel, domínio próprio, URL digitada nem configuração pelo paciente. A WebView abre
+`www/index.html` local; erros de rede aparecem na interface, sem navegar para página
+remota de erro do Android.
 
-> **Se você instalou o APK e apareceu "Página da web não disponível — net::ERR_NAME_NOT_RESOLVED"**:
-> a versão antiga do `capacitor.config.json` trazia fixo o endereço `https://seu-servidor-production.com`,
-> que não existe. Hoje o endereço vem de fora do código (variável `APP_SERVER_URL`) e, quando não é
-> informado, o próprio aplicativo pergunta o endereço na primeira tela e guarda no aparelho. Gere o
-> APK de novo (Actions → Build Android APK) e reinstale.
+## Arquitetura e compatibilidade
 
-## Resumo do fluxo
+- `mobile/app.tsx`: interface React independente do Next, compilada em `www/app.js`.
+- `edge/api.ts`: API com operações explícitas. Compila as actions, validações,
+  transações Drizzle e queries existentes; adapters de cookies/cache/navigation ficam
+  **somente no servidor**, em `edge/runtime.ts`. Não se copiam Server Actions para o APK.
+- `supabase/functions/mobile-api`: executa a API no Supabase (Deno + dependências npm).
+- `profiles.password_hash` (bcrypt), IDs, papéis e `sessions` são preservados. Não se usa
+  Supabase Auth, não há reset de senha ou migração de contas. Contas novas também
+  funcionam no login web. Sessão do APK é bearer própria, mantida apenas em memória;
+  fechar/reabrir o app exige login. Logout revoga a sessão no banco.
+- A Edge Function acessa PostgreSQL com `DATABASE_URL` **privada do servidor**. O APK
+  nunca recebe conexão PostgreSQL, senha, hash, service role ou chave anon.
+- PostgREST não é utilizado: RLS fica ligado e grants públicos são revogados. Nenhuma
+  política de leitura pública é necessária. Autorização é feita pela API (sessão,
+  papel, propriedade e vínculo). `verify_jwt=false` significa que a função valida a
+  sessão própria, **não** que as operações de dados sejam anônimas.
 
+### Fluxos implementados
+
+| Web dependente de servidor | Operação Android |
+| --- | --- |
+| Login/cadastros e sessão | login, signupPaciente, signupMedico, me, logout |
+| Início, perfil, lembretes e cardápio | home, profile |
+| Consultas e histórico | appointment, appointmentStatus, home |
+| Medições e histórico de saúde | measurement, patient, home |
+| Lista de médicos, planos e assinatura | home, subscribe |
+| Pacientes, prontuário, triagens, alertas e pendências do médico | home, patient, triage, pending |
+
+A interface Android é própria, não uma cópia visual de todas as páginas Next.
+Lista apenas pacientes vinculados ao médico por consulta (incluindo histórico);
+não oferece busca irrestrita de prontuários. O primeiro vínculo é estabelecido pelo
+paciente ao escolher o médico no agendamento. O médico pode criar novas consultas e
+triagens **para pacientes já vinculados**. Alertas sem médico só aparecem para médicos
+vinculados ao paciente; alertas atribuídos só para seu médico. O cadastro público de
+médico não concede acesso clínico automaticamente.
+
+## 1. Conferir o Supabase real (antes de qualquer SQL de alteração)
+
+Nesta implementação não havia `.env.local` ou acesso ao seu banco. **O banco real não
+foi inspecionado nem alterado.** Os testes foram em PostgreSQL local descartável.
+
+1. Faça backup pelo procedimento do seu projeto.
+2. Copie `.env.example` para `.env.local`; preencha `DATABASE_URL` (Session pooler em
+   **Connect / Database**, senha somente no arquivo) e execute `npm run db:check`.
+3. Execute `supabase/preflight.sql` no SQL Editor. É somente leitura: colunas,
+   constraints, índices, RLS, grants, views e funções SECURITY DEFINER. Compare com
+   `src/db/schema.ts` e `supabase/schema.sql`. Não compartilhe credenciais ou linhas
+   de pacientes. O seed é demonstração e **não deve ser aplicado no banco real**.
+4. Se houver divergências, interrompa a implantação e revise-as. Verifique também
+   views, RPCs SECURITY DEFINER e grants herdados que exponham as tabelas: a migração
+   não remove objetos desconhecidos. Não publique até eliminar essas rotas de acesso.
+5. Confirme que a conexão web/Edge usa owner/BYPASSRLS (a conexão `postgres` existente),
+   e não `anon`/`authenticated`. RLS não deve ser desativado para fazer o web funcionar.
+
+Não use `reset.sql`, `db:push`, `db:seed` ou reaplicação indiscriminada de schema para
+corrigir o projeto existente.
+
+## 2. Aplicar a fronteira de segurança e aprovar médicos
+
+Revise e execute **somente** `supabase/migrations/20261015_mobile_boundary.sql` no SQL
+Editor, após a conferência acima. Ela é transacional e reexecutável:
+
+- exige as 13 tabelas existentes; não recria nem modifica suas linhas;
+- liga RLS e revoga acesso de `PUBLIC`, `anon`, `authenticated` (inclusive grants de colunas);
+- adiciona schema privado com aprovação médica e contagem de tentativas de login;
+- não altera senhas, sessões existentes, papéis, IDs ou prontuários.
+
+Confirme cada médico, inclusive os já cadastrados, antes de liberar o acesso Android:
+
+```sql
+-- Substitua pelo UUID real obtido no cadastro, após validar identidade/CRM.
+insert into mobile_private.approved_doctors (medico_id)
+values ('<uuid-real-do-medico>') on conflict do nothing;
 ```
-GitHub Actions ─┬─► npm ci
-                ├─► node scripts/android-config.mjs   →  www/config.js  (endereço do servidor)
-                ├─► npx cap add android / cap sync    →  copia www/ para dentro do APK
-                ├─► node scripts/android-patch.mjs    →  libera http:// (teste na rede local)
-                └─► ./gradlew assembleDebug           →  app-debug.apk (artifact)
-```
 
-Ao abrir, o APK carrega `www/index.html` (arquivo local, sempre disponível). Essa tela:
+Isso é aprovação adicional, não mudança do papel existente. Sem ela, o médico consegue
+entrar, mas vê aviso de aprovação pendente. Nenhuma conta é invalidada. Para revogar,
+remova apenas sua linha de aprovação (operação administrativa deliberada).
+As telas/actions web não foram migradas para esse fluxo de aprovação: a política de
+acesso clínico do web continua a anterior e deve ser revisada separadamente se for
+publicado para cadastros médicos abertos. Login/cadastro web foram preservados.
 
-1. se já existe endereço salvo (ou definido no build), testa `/api/health` e abre o sistema;
-2. se o endereço não responde ou não existe, mostra o campo para corrigir — em vez da tela de erro
-   do Android;
-3. se nunca foi configurado, mostra o campo, explica onde achar o endereço e guarda o que for digitado.
+## 3. Publicar a API no Supabase
 
-Depois de entrar, o link **"Trocar servidor"** (na tela de login, aparece só dentro do APK) volta
-para essa tela de configuração.
-
-## Definir o endereço do servidor
-
-**Opção A — variável no GitHub (recomendado).** O APK já vem apontado para o seu servidor:
-
-`Settings → Secrets and variables → Actions → Variables → New repository variable`
-
-| Nome | Valor | Para que serve |
-| --- | --- | --- |
-| `APP_SERVER_URL` | `https://seu-app.vercel.app` | Endereço onde o sistema está publicado (só domínio, sem caminho). |
-| `APP_SERVER_URL_CHECK` | `1` (padrão) | Confere se o endereço responde antes de gerar o APK. `0` desliga. |
-
-Se `APP_SERVER_URL` não responder, o build **falha** com a explicação — de propósito: um APK que
-abre num endereço morto só dá dor de cabeça depois de instalado.
-
-**Opção B — na hora de rodar o workflow.** `Actions → Build Android APK → Run workflow → server_url`.
-
-**Opção C — nada configurado.** O build passa normalmente e o APK pergunta o endereço na primeira
-execução (fica salvo no aparelho).
-
-> **Atenção:** o APK **não** precisa da `DATABASE_URL`. Ela pertence ao servidor (Vercel/Render),
-> nunca ao celular — colocar o banco dentro do app significaria entregar a senha do banco para quem
-> instalar o APK.
-
-## Gerar o APK
-
-1. Publique o sistema web e confirme que ele abre no navegador (veja `README.md`, seção "Publicar").
-2. Rode o workflow **Build Android APK** (push na `main`, ou manualmente em Actions).
-3. Baixe o artifact `app-debug` (arquivo `app-debug.apk`) e instale no celular.
-4. Abra o app e informe o endereço do servidor, se ele pedir.
-
-## Build local
+Use a CLI Supabase instalada ou `npx supabase`. Autentique **localmente**; não cole tokens
+no chat nem versione arquivos de credenciais.
 
 ```bash
 npm ci
-npm run android:config     # opcional: APP_SERVER_URL=https://... npm run android:config
-npm run android:build      # gera o APK em android/app/build/outputs/apk/debug/app-debug.apk
+npm run edge:build
+npx supabase login
+npx supabase functions deploy mobile-api --project-ref <ref-do-projeto>
 ```
 
-`npm run android:build` faz tudo: gera o `www/config.js`, adiciona/sincroniza o projeto Android,
-aplica os ajustes do manifesto e roda o Gradle. Requer **JDK 21** e o **Android SDK**.
+`supabase/config.toml` define `verify_jwt=false` para a sessão própria. O deploy precisa
+incluir os arquivos gerados por `edge:build`; não edite o bundle gerado. Alterou actions
+ou API? Recompile e faça deploy novamente.
 
-Para testar contra o servidor rodando na sua máquina:
+No painel **Edge Functions → Secrets**, configure `DATABASE_URL` com a conexão
+PostgreSQL do pooler, TLS (`sslmode=require`) e senha. Essa variável fica **só no
+servidor**. Não é necessário `SUPABASE_SERVICE_ROLE_KEY`. Não envie `.env.local` inteiro
+para o bundle, para artifacts ou para o repositório. Mantenha `DB_DEBUG_ERRORS` desligado.
+
+## 4. Gerar APK localmente
+
+Requisitos: Node 22, JDK 21, Android SDK com as plataformas/build tools solicitadas
+pelo Capacitor 8, licenças aceitas e `ANDROID_HOME` configurado.
+
+Em `.env.local`:
+
+```dotenv
+# Público: Dashboard → Project Settings → Data API → Project URL
+MOBILE_SUPABASE_URL=https://<ref-do-projeto>.supabase.co
+# Privado, apenas para web/diagnóstico local:
+DATABASE_URL=<connection-string-postgresql-do-pooler>
+```
 
 ```bash
-npm run dev -- -H 0.0.0.0                # o celular precisa estar na mesma rede Wi-Fi
-npm run android:build                    # e informe http://SEU-IP:3000 no app
+npm ci
+npm run android:build
 ```
 
-No primeiro uso, o endereço `http://` é aceito e testado igual ao `https://` (o manifesto gerado
-permite tráfego sem TLS, o que o Android bloqueia por padrão desde o Android 9).
+O script gera o bundle, cria/sincroniza Android, bloqueia HTTP/backup e executa Gradle.
+Saída: `android/app/build/outputs/apk/debug/app-debug.apk`.
+O build falha sem URL válida; não há fallback para perguntar endereço. Só
+`MOBILE_SUPABASE_URL` é injetada no JavaScript. A chave anon **não é necessária**.
+O endereço público muda somente reconstruindo o APK.
 
-## O que cada arquivo faz
+## 5. GitHub Actions
 
-| Arquivo | Papel |
+Em **Settings → Secrets and variables → Actions → Variables**, crie:
+
+| Nome | Valor/origem |
 | --- | --- |
-| `capacitor.config.json` | Configuração do Capacitor. **Sem `server.url`**: o app abre em `www/` (local). `allowNavigation: ["*"]` mantém a navegação para o servidor dentro do app; `appendUserAgent` marca as requisições como vindas do APK. |
-| `www/index.html` | Tela de "endereço do servidor" + teste de conexão. HTML puro, sem dependências externas. |
-| `www/config.js` | Endereço padrão, **gerado** por `scripts/android-config.mjs` (o repositório guarda a versão vazia). |
-| `scripts/android-config.mjs` | Valida `APP_SERVER_URL`, confere se responde e grava o `www/config.js`. |
-| `scripts/android-patch.mjs` | Ajusta o `AndroidManifest.xml` gerado (libera `http://` para testes locais). Idempotente. |
-| `.github/workflows/build-android-apk.yml` | Gera o APK no CI. |
-| `android/` | Projeto Android gerado pelo Capacitor. Ignorado no git (recriado a cada build). |
+| `MOBILE_SUPABASE_URL` | Project URL HTTPS do seu Supabase |
 
-## Problemas comuns
+Não configure `APP_SERVER_URL`, `DATABASE_URL`, senha ou service role para o job Android.
+Execute **Actions → Build Android APK → Run workflow**; baixe o artifact `app-debug`,
+extraia e instale o `.apk`. A função deve estar publicada/configurada previamente; o
+workflow compila o cliente e **não** aplica SQL nem faz deploy de backend.
 
-| Sintoma no celular | Causa | O que fazer |
-| --- | --- | --- |
-| "Página da web não disponível — ERR_NAME_NOT_RESOLVED" | Endereço do servidor não existe (domínio errado ou deploy nunca feito). | Confira o endereço no navegador do computador e informe de novo no app ("Trocar servidor"). |
-| "Não consegui falar com https://…" na tela do app | Servidor fora do ar, endereço com caminho (`/login`) ou celular sem internet. | Teste o endereço no navegador; use só o domínio, sem caminho. |
-| App abre, mas o login diz "não foi possível acessar o banco" | O servidor está no ar, o banco não. | Abra `https://SEU-ENDERECO/diagnostico` — ele lista o que falta (normalmente `npm run db:setup`). |
-| Tela branca ao abrir | `www/` vazio no APK (sync não rodou). | Rode `npx cap sync android` e gere de novo. |
-| `http://192.168.x.x:3000` não carrega | Tráfego sem TLS bloqueado. | Rode `node scripts/android-patch.mjs` e gere o APK de novo (o workflow já faz isso). |
-| Login "funciona" mas volta para a tela de login | O servidor precisa de HTTPS: cookies `Secure` não viajam em `http://` fora de `localhost`. | Use o endereço publicado (`https://`). Para teste local, use um túnel (ngrok/cloudflared). |
+O artifact é **debug**, instalável para testes. Distribuição final deve usar build
+release assinado e guardar o keystore fora do Git; a assinatura é necessária também
+para futuras atualizações sem desinstalar.
+
+## Validação e limites
+
+```bash
+npm test
+npm run typecheck
+npm run lint
+npm run build             # web
+npm run edge:build
+npm run mobile:build      # exige MOBILE_SUPABASE_URL real
+# Só PostgreSQL LOCAL descartável, nunca seu Supabase:
+TEST_DATABASE_URL=<url-do-postgres-local> npm test
+```
+
+`scripts/mobile-integration.test.mjs` cria banco isolado `_mobile`, aplica schema/seed,
+simula grants Supabase e testa bloqueio por role, coluna, aprovação, IDOR, vínculo,
+login legado, cadastro, persistência, concorrência, logout e limite de tentativas.
+As outras suítes testam transações/rollback e compatibilidade web. Sem banco, testes
+de integração são marcados como ignorados, não considerados validação de produção.
+
+Antes de distribuir, teste no **seu Supabase e em um Android real**: contas antigas e
+novas dos dois papéis; medições/alertas; agendamento e mudança de status; triagem;
+perfil; planos; tentativa de ler outro paciente; logout; rede desligada e retorno.
+Confirme também que REST com anon/authenticated não lê nenhuma das 13 tabelas e que
+views/RPCs não oferecem caminho alternativo. Nunca use usuários reais nos testes
+que alteram registros. O CI não substitui esta homologação.
+
+Há limite persistente de dez tentativas de autenticação por email em quinze minutos.
+Para produção aberta, acrescente proteção de abuso por origem/CAPTCHA no gateway e
+rotina de expiração dos contadores antigos (não envolvem dados clínicos).
+
+**Validação desta entrega:** 85 testes passaram em PostgreSQL local descartável;
+typecheck, lint e build Next passaram. API gerada executou login legado/home em Deno.
+Não houve acesso ao Supabase real, compilação Gradle/SDK nem teste em dispositivo;
+não há APK compilado nesta sessão.

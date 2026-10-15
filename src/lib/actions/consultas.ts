@@ -125,7 +125,16 @@ export async function createConsultaPacienteAction(formData: FormData): Promise<
   try {
     // O texto digitado no form nunca vira id de médico às cegas: `paciente_id` e
     // companhia são ignorados de propósito, porque o vínculo é o PERFIL logado.
-    const medicoId = await resolverMedicoPorNome(profissional);
+    const escolhido = str(formData, "medico_id");
+    let medicoId: string | null;
+    if (escolhido) {
+      if (!isUuid(escolhido)) return { success: false, error: "Médico inválido." };
+      const rows = await db.select({ id: medicos.id }).from(medicos).where(eq(medicos.id, escolhido)).limit(1);
+      if (!rows[0]) return { success: false, error: "Médico não encontrado." };
+      medicoId = rows[0].id;
+    } else {
+      medicoId = await resolverMedicoPorNome(profissional);
+    }
     await db.insert(consultas).values({
       pacienteId: profile.id,
       medicoId,

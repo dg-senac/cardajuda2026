@@ -89,15 +89,15 @@ test("schema + seed num Postgres real", opcoes, async (t) => {
     });
   });
 
-  await t.test("as 13 tabelas ficam com RLS desligado (senão todo SELECT volta vazio)", async () => {
+  await t.test("as 13 tabelas ficam com RLS ligado (servidor owner continua funcionando)", async () => {
     const rls = await client.query(
       `select relname from pg_class c
          join pg_namespace n on n.oid = c.relnamespace
-        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+        where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
           and c.relname = any($1::text[])`,
       [APP_TABLES],
     );
-    assert.deepEqual(rls.rows, [], "nenhuma tabela do app com row level security ativa");
+    assert.deepEqual(rls.rows, [], "nenhuma tabela do app sem row level security");
   });
 
   await t.test("as queries das telas rodam e casam com o seed", async () => {

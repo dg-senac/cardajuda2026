@@ -3,7 +3,7 @@
  * npm run db:setup [-- --seed]
  *
  * Aplica o supabase/schema.sql (as 13 tabelas, chaves estrangeiras, índices e o
- * RLS desligado) no banco apontado pela DATABASE_URL -- o MESMO banco que o
+ * RLS ligado, conexão de servidor owner/BYPASSRLS) no banco apontado pela DATABASE_URL -- o MESMO banco que o
  * app usa. É a versão de terminal do "cole o schema.sql no SQL Editor do
  * Supabase" e existe para acabar com o erro de cadastro mais comum deste
  * projeto: a tabela "profiles" não existir no banco que a DATABASE_URL aponta.

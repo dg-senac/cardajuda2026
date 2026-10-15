@@ -19,7 +19,9 @@
     "cap:sync": "cap sync",
     "cap:open:android": "cap open android",
     "android:patch": "node scripts/android-patch.mjs",
-    "android:build": "node scripts/android-config.mjs && (npx cap sync android || (npx cap add android && npx cap sync android)) && node scripts/android-patch.mjs && cd android && ./gradlew assembleDebug"
+    "android:build": "npm run mobile:build && node scripts/android-build.mjs",
+    "mobile:build": "node scripts/android-config.mjs",
+    "edge:build": "node scripts/edge-build.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -44,6 +46,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.25.12",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "postcss": "8.5.8",

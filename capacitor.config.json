@@ -2,14 +2,6 @@
   "appId": "com.cardajuda.app",
   "appName": "Carda Ajuda",
   "webDir": "www",
-  "bundledWebRuntime": false,
-  "appendUserAgent": "CardaAjudaApp",
-  "server": {
-    "androidScheme": "https",
-    "cleartext": true,
-    "allowNavigation": ["*"]
-  },
-  "android": {
-    "allowMixedContent": true
-  }
+  "server": { "androidScheme": "https", "cleartext": false },
+  "android": { "allowMixedContent": false }
 }

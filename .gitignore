@@ -10,3 +10,8 @@ next-env.d.ts
 drizzle.config.json
 android/
 ios/
+
+www/app.js
+www/config.js
+supabase/functions/mobile-api/api.js
+supabase/functions/mobile-api/index.ts

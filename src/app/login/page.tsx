@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import AvisoBanco from "@/components/AvisoBanco";
-import TrocarServidor from "@/components/TrocarServidor";
 import { checkDatabase } from "@/lib/db-ready";
 import { lookupCurrentProfile } from "@/lib/session";
 import LoginForm from "./LoginForm";
@@ -25,7 +24,6 @@ export default async function LoginPage() {
     <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 py-10">
       {db.ok ? null : <AvisoBanco status={db} />}
       <LoginForm />
-      <TrocarServidor />
     </main>
   );
 }
