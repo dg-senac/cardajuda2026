@@ -1,95 +1,57 @@
-import { sql } from "drizzle-orm";
-import { databaseTarget, db } from "@/db";
-import {
-  APP_TABLES,
-  dbDetailsEnabled,
-  diagnoseDbError,
-  formatDbDiagnosis,
-} from "@/lib/db-diagnosis.mjs";
+import { APP_TABLES } from "@/lib/db-diagnosis.mjs";
+import { checkDatabase } from "@/lib/db-ready";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Health check do banco.
  *
- * Antes ele respondia só `{ ok: false }` (sem motivo) e considerava o banco
- * "ok" mesmo quando as tabelas não existiam -- exatamente o caso em que o
- * cadastro quebra com "Failed query: select ... from profiles". Agora:
+ * Responde o mesmo que a tela /diagnostico, em JSON -- útil para monitoramento,
+ * para o script `npm run db:check` e para quem está descobrindo por que o login
+ * não funciona. A checagem mora em src/lib/db-ready.ts (uma fonte só).
  *
- *   1. tenta conectar;
- *   2. se conectar, confere se as 13 tabelas do app existem;
- *   3. devolve a causa real (código do Postgres + o que fazer).
+ *   ok: true  -> conecta e as 13 tabelas existem
+ *   ok: false -> inclui `error`, `missingTables` (quando for schema) e `fix`
  *
- * O detalhe técnico (host, banco, diagnóstico) só aparece fora de produção ou
- * com DB_DEBUG_ERRORS=1, para não expor a infraestrutura em produção.
+ * O detalhe técnico (host, cadeia de erros) só aparece fora de produção ou com
+ * DB_DEBUG_ERRORS=1, para não expor a infraestrutura em produção.
  */
 export async function GET() {
-  const target = databaseTarget();
-  const details = dbDetailsEnabled();
+  const status = await checkDatabase(true);
 
-  try {
-    await db.execute(sql`select 1`);
-  } catch (error) {
-    const diagnosis = diagnoseDbError(error);
-    console.error(`[health] banco inacessível\n${formatDbDiagnosis(diagnosis)}`);
-    return Response.json(
-      {
-        ok: false,
-        checkedAt: new Date().toISOString(),
-        error: "sem conexão com o banco",
-        ...(details
-          ? {
-              database: target,
-              code: diagnosis.code,
-              message: diagnosis.message,
-              cause: diagnosis.summary,
-              fix: diagnosis.hint,
-              chain: diagnosis.chain,
-            }
-          : {}),
-      },
-      { status: 500 },
-    );
+  if (status.ok) {
+    return Response.json({
+      ok: true,
+      checkedAt: status.checkedAt,
+      tables: { expected: APP_TABLES.length, missing: [] as string[], checked: true },
+      ...(status.detailsEnabled
+        ? {
+            database: status.target,
+            ...(status.warnings.length > 0 ? { warnings: status.warnings } : {}),
+          }
+        : {}),
+    });
   }
 
-  let missingTables: string[] = [];
-  let tablesChecked = true;
-  try {
-    const result = await db.execute<{ table_name: string }>(
-      sql`select table_name from information_schema.tables where table_schema = 'public'`,
-    );
-    const present = new Set(result.rows.map((row) => row.table_name));
-    missingTables = APP_TABLES.filter((table) => !present.has(table));
-  } catch (error) {
-    tablesChecked = false;
-    console.error(
-      `[health] conectou, mas não conseguiu listar as tabelas\n${formatDbDiagnosis(diagnoseDbError(error))}`,
-    );
-  }
+  console.error(`[health] banco não está pronto (${status.kind}): ${status.title}`);
 
-  if (missingTables.length > 0) {
-    console.error(
-      `[health] o banco responde, mas faltam ${missingTables.length} tabela(s): ${missingTables.join(", ")}. Rode "npm run db:setup".`,
-    );
-    return Response.json(
-      {
-        ok: false,
-        checkedAt: new Date().toISOString(),
-        error: "o banco responde, mas o schema do app não está aplicado",
-        missingTables,
-        fix: "Rode `npm run db:setup` (aplica supabase/schema.sql no banco da DATABASE_URL) ou cole o supabase/schema.sql no SQL Editor do Supabase.",
-        ...(details ? { database: target, warnings: target.warnings } : {}),
-      },
-      { status: 500 },
-    );
-  }
-
-  return Response.json({
-    ok: true,
-    checkedAt: new Date().toISOString(),
-    tables: { expected: APP_TABLES.length, missing: [] as string[], checked: tablesChecked },
-    ...(details
-      ? { database: target, ...(target.warnings.length > 0 ? { warnings: target.warnings } : {}) }
-      : {}),
-  });
+  return Response.json(
+    {
+      ok: false,
+      checkedAt: status.checkedAt,
+      error: status.title,
+      message: status.message,
+      fix: status.hint,
+      ...(status.missingTables.length > 0 ? { missingTables: status.missingTables } : {}),
+      ...(status.detailsEnabled
+        ? {
+            database: status.target,
+            code: status.code,
+            chain: status.chain,
+            warnings: status.warnings,
+          }
+        : {}),
+    },
+    { status: 500 },
+  );
 }

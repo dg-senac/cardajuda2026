@@ -51,8 +51,14 @@ npm run db:seed    # opcional: contas de demonstração
 ```
 
 Os dois scripts usam a `DATABASE_URL` do `.env.local`, ou seja, o MESMO banco do app (diferente de
-rodar o SQL "no projeto errado"). Também dá para ver o estado pelo navegador: `GET /api/health`
-responde `{"ok":false,"missingTables":[...],"fix":"npm run db:setup"}` quando conecta mas falta schema.
+rodar o SQL "no projeto errado"). Também dá para ver o estado pelo navegador:
+
+- `/diagnostico` — página com a conexão em uso (`host:porta/banco`, sem senha), as 13 tabelas
+  (✓/✕), as **colunas** que faltam e o comando que resolve;
+- `GET /api/health` — o mesmo em JSON: `{"ok":false,"missingTables":[...],"fix":"npm run db:setup"}`.
+
+As telas de login e cadastro mostram esse aviso no topo quando o banco não está pronto, em vez de
+falharem só no envio do formulário.
 
 Causas frequentes, do mais comum ao menos comum:
 

@@ -12,7 +12,7 @@ import {
   userFacingDbMessage,
 } from "@/lib/db-diagnosis.mjs";
 import { uniqueViolationMessage } from "@/lib/actions/db";
-import { createSession, destroySession, getCurrentProfile } from "@/lib/session";
+import { createSession, destroySession, lookupCurrentProfile } from "@/lib/session";
 import {
   calculateAge,
   isValidIsoDate,
@@ -283,9 +283,18 @@ export async function signupMedicoAction(formData: FormData): Promise<ActionResu
   return { success: true };
 }
 
+/**
+ * Perfil logado ou redirecionamento para /login.
+ *
+ * Usa `lookupCurrentProfile` (que não lança) em vez de `getCurrentProfile`: com o
+ * banco fora do ar ou sem schema, a página do usuário logado estourava um erro
+ * 500 sem explicação. Mandando para /login, a pessoa vê o formulário E o aviso
+ * com o diagnóstico do banco -- e volta para onde estava quando o banco voltar.
+ */
 export async function requireProfile() {
-  const profile = await getCurrentProfile();
+  const { profile, failure } = await lookupCurrentProfile();
   if (!profile) {
+    if (failure) redirect("/login");
     redirect("/login");
   }
   return profile;

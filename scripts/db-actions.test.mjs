@@ -93,7 +93,7 @@ test(
     const triagens = await import("../src/lib/actions/triagens.ts");
     const misc = await import("../src/lib/actions/misc.ts");
     const queries = await import("../src/lib/queries.ts");
-    const { pool } = await import("../src/db/index.ts");
+    const { closePool } = await import("../src/db/index.ts");
 
     const conta = async (sql, params) => (await setup.query(sql, params)).rows;
 
@@ -115,7 +115,7 @@ test(
     }
 
     t.after(async () => {
-      await pool.end().catch(() => {});
+      await closePool().catch(() => {});
       await setup.end().catch(() => {});
     });
 
