@@ -5,6 +5,11 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      supabase_url:
+        description: "URL pública do projeto Supabase (https://<ref>.supabase.co). Vazio = usa a Variable MOBILE_SUPABASE_URL."
+        required: false
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -33,7 +38,7 @@ jobs:
       - name: Bundle local interface (public configuration only)
         run: npm run mobile:build
         env:
-          MOBILE_SUPABASE_URL: ${{ vars.MOBILE_SUPABASE_URL }}
+          MOBILE_SUPABASE_URL: ${{ inputs.supabase_url || vars.MOBILE_SUPABASE_URL }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
