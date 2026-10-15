@@ -1,5 +1,7 @@
 "use server";
 
+import { sql } from "drizzle-orm";
+import { isUuid } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { alertas, medicoes } from "@/db/schema";
@@ -42,11 +44,17 @@ export async function createMedicaoAction(formData: FormData): Promise<ActionRes
 
   const status = getMeasurementStatus(sistolica, diastolica, glicemia);
 
+  const requestId = String(formData.get("request_id") ?? "");
+  if (requestId && !isUuid(requestId)) return { success: false, error: "Pedido inválido." };
   try {
     // medição + alerta na mesma transação: se o insert do alerta falhasse, a
     // medição ficava registrada e o alerta -- o motivo de existir da tela do
     // médico -- não existia.
     await db.transaction(async (tx) => {
+      if (requestId) {
+        const receipt = await tx.execute(sql`insert into mobile_private.mutation_receipts (user_id, request_id, operation) values (${profile.id}::uuid, ${requestId}::uuid, 'measurement') on conflict do nothing returning request_id`);
+        if (!receipt.rows.length) return;
+      }
       await tx.insert(medicoes).values({
         pacienteId: profile.id,
         sistolica,

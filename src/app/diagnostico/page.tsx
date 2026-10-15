@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AvisoBanco from "@/components/AvisoBanco";
 import Icon from "@/components/Icon";
-import TrocarServidor from "@/components/TrocarServidor";
 import { APP_TABLES } from "@/lib/db-diagnosis.mjs";
 import { SETUP_COMMANDS, checkDatabase } from "@/lib/db-ready";
 
@@ -147,7 +146,6 @@ export default async function DiagnosticoPage() {
           <Icon name="arrow-left" size={14} />
           Voltar ao login
         </Link>
-        <TrocarServidor />
       </div>
     </main>
   );

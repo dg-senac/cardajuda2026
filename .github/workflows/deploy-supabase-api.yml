@@ -1,0 +1,35 @@
+name: Publicar API Supabase
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publicar-api-supabase
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck && npm run lint && npm test && npm run edge:build
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno cache --frozen supabase/functions/mobile-api/index.ts
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Publicar função (não aplica SQL nem copia secrets)
+        run: |
+          test -n "$SUPABASE_PROJECT_REF" || { echo 'Configure SUPABASE_PROJECT_REF'; exit 1; }
+          supabase functions deploy mobile-api --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          echo 'API mobile-api publicada. Valide login e permissões com contas de teste.' >> "$GITHUB_STEP_SUMMARY"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}

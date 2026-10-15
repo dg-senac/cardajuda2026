@@ -1,9 +1,10 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { alertas, pacientes, triagens } from "@/db/schema";
+import { alertas, pacientes, profiles, triagens } from "@/db/schema";
+import { requireDoctor, requirePatientAccess } from "@/lib/access";
 import { requireProfile } from "@/lib/actions/auth";
 import { reportDbFailure } from "@/lib/actions/db";
 import { isUuid, isValidIsoDate, isValidTime } from "@/lib/validations";
@@ -21,6 +22,7 @@ class RequisitoInvalido extends Error {}
 export async function createTriagemAction(formData: FormData): Promise<ActionResult> {
   const profile = await requireProfile();
   if (profile.role !== "medico") return { success: false, error: "Ação não permitida." };
+  await requireDoctor(profile.id);
 
   const pacienteId = str(formData, "paciente_id");
   const nomePaciente = str(formData, "nome_paciente");
@@ -49,6 +51,8 @@ export async function createTriagemAction(formData: FormData): Promise<ActionRes
     return { success: false, error: "Data ou horário em formato inválido." };
   }
 
+  const requestId = String(formData.get("request_id") ?? "");
+  if (requestId && !isUuid(requestId)) return { success: false, error: "Pedido inválido." };
   try {
     // triagem + alerta críticos na mesma transação.
     //
@@ -57,6 +61,11 @@ export async function createTriagemAction(formData: FormData): Promise<ActionRes
     // caso que precisa de atenção imediata sumindo da tela do médico, sem nenhum
     // erro visível para ninguém.
     await db.transaction(async (tx) => {
+      if (requestId) {
+        const receipt = await tx.execute(sql`insert into mobile_private.mutation_receipts (user_id, request_id, operation) values (${profile.id}::uuid, ${requestId}::uuid, 'triage') on conflict do nothing returning request_id`);
+        if (!receipt.rows.length) return;
+      }
+      await requirePatientAccess(pacienteId);
       const alvo = await tx
         .select({ id: pacientes.id })
         .from(pacientes)
@@ -66,13 +75,14 @@ export async function createTriagemAction(formData: FormData): Promise<ActionRes
         throw new RequisitoInvalido("Paciente não encontrado. Selecione um da lista.");
       }
 
+      const patientName = (await tx.select({ nome: profiles.nome }).from(profiles).where(eq(profiles.id, pacienteId)))[0].nome;
       await tx.insert(triagens).values({
         pacienteId,
         medicoId: profile.id,
-        nomePaciente,
+        nomePaciente: patientName,
         data,
         horario,
-        profissional,
+        profissional: profile.nome,
         queixaPrincipal,
         classificacao,
       });
@@ -82,7 +92,7 @@ export async function createTriagemAction(formData: FormData): Promise<ActionRes
           pacienteId,
           medicoId: profile.id,
           tipo: "triagem",
-          titulo: `Triagem crítica: ${nomePaciente}`,
+          titulo: `Triagem crítica: ${patientName}`,
           descricao: queixaPrincipal,
           status: "alerta",
         });

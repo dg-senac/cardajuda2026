@@ -1,3 +1,5 @@
+import { isApprovedDoctor } from "@/lib/access";
+import LogoutButton from "@/components/LogoutButton";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { lookupCurrentProfile } from "@/lib/session";
@@ -13,6 +15,8 @@ export default async function MedicoLayout({ children }: { children: ReactNode }
     redirect("/login");
   }
   if (profile.role !== "medico") redirect("/paciente/inicio");
+
+  if (!await isApprovedDoctor(profile.id)) return <main className="p-6"><h1>Aguardando aprovação do cadastro médico</h1><p>O responsável precisa conferir sua identidade e CRM antes de liberar o acesso. Médicos existentes também precisam de aprovação explícita.</p><LogoutButton /></main>;
 
   return <div className="flex flex-1 flex-col pb-4">{children}</div>;
 }

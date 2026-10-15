@@ -1,5 +1,6 @@
 "use server";
 
+import { throttle } from "@/lib/throttle";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
@@ -39,7 +40,7 @@ function str(formData: FormData, key: string): string {
  */
 function dbFailure(purpose: "cadastro" | "login", context: string, error: unknown): ActionResult {
   const diagnosis = diagnoseDbError(error);
-  console.error(`[auth] ${context} falhou\n${formatDbDiagnosis(diagnosis)}`);
+  console.error(`[auth] ${context} falhou: ${diagnosis.code ?? "indisponível"}${process.env.NODE_ENV === "production" ? "" : "\n" + formatDbDiagnosis(diagnosis)}`);
 
   const duplicate = uniqueViolationMessage(diagnosis);
   if (duplicate && purpose === "cadastro") {
@@ -50,12 +51,13 @@ function dbFailure(purpose: "cadastro" | "login", context: string, error: unknow
 
 export async function loginAction(formData: FormData): Promise<ActionResult> {
   const email = str(formData, "email").toLowerCase();
-  const password = str(formData, "password");
+  const password = String(formData.get("password") ?? "");
 
   if (!email || !password) {
     return { success: false, error: "Preencha email e senha." };
   }
 
+  try { await throttle(email); } catch { return { success: false, error: "Muitas tentativas. Aguarde 15 minutos." }; }
   let profile: typeof profiles.$inferSelect | undefined;
   try {
     const rows = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
@@ -68,7 +70,7 @@ export async function loginAction(formData: FormData): Promise<ActionResult> {
     return { success: false, error: "Email ou senha inválidos." };
   }
 
-  const valid = await bcrypt.compare(password, profile.passwordHash);
+  const valid = await bcrypt.compare(password, profile.passwordHash) || (password !== password.trim() && await bcrypt.compare(password.trim(), profile.passwordHash));
   if (!valid) {
     return { success: false, error: "Email ou senha inválidos." };
   }
@@ -109,7 +111,8 @@ export async function signupPacienteAction(formData: FormData): Promise<ActionRe
   const cpf = normalizeCpf(str(formData, "cpf"));
   const telefone = str(formData, "telefone");
   const email = str(formData, "email").toLowerCase();
-  const senha = str(formData, "senha");
+  const senha = String(formData.get("senha") ?? "");
+  if (new TextEncoder().encode(senha).length > 72) return { success: false, error: "Senha deve ter no máximo 72 bytes (limite bcrypt)." };
   const dataNascimento = str(formData, "data_nascimento");
   const tipoSanguineo = str(formData, "tipo_sanguineo");
   const alturaTexto = str(formData, "altura").replace(",", ".");
@@ -146,6 +149,7 @@ export async function signupPacienteAction(formData: FormData): Promise<ActionRe
     return { success: false, error: "Data de nascimento inválida." };
   }
 
+  try { await throttle(email); } catch { return { success: false, error: "Muitas tentativas. Aguarde 15 minutos." }; }
   const passwordHash = await bcrypt.hash(senha, 10);
 
   let profileId: string | undefined;
@@ -214,7 +218,8 @@ export async function signupMedicoAction(formData: FormData): Promise<ActionResu
   const formacao = str(formData, "formacao");
   const telefone = str(formData, "telefone");
   const email = str(formData, "email").toLowerCase();
-  const senha = str(formData, "senha");
+  const senha = String(formData.get("senha") ?? "");
+  if (new TextEncoder().encode(senha).length > 72) return { success: false, error: "Senha deve ter no máximo 72 bytes (limite bcrypt)." };
   const genero = str(formData, "genero");
 
   if (!nome || !crm || !especialidade || !formacao || !telefone || !email || !senha || !genero) {
@@ -233,6 +238,7 @@ export async function signupMedicoAction(formData: FormData): Promise<ActionResu
     return { success: false, error: "CRM inválido (mínimo 5 caracteres)." };
   }
 
+  try { await throttle(email); } catch { return { success: false, error: "Muitas tentativas. Aguarde 15 minutos." }; }
   const passwordHash = await bcrypt.hash(senha, 10);
 
   let profileId: string | undefined;

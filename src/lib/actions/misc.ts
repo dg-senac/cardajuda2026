@@ -1,9 +1,10 @@
 "use server";
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { assinaturas, medicos, pacientes, pendencias, planos, profiles } from "@/db/schema";
+import { requireDoctor, requirePatientAccess } from "@/lib/access";
 import { requireProfile } from "@/lib/actions/auth";
 import { reportDbFailure } from "@/lib/actions/db";
 import { isUuid, validatePhone } from "@/lib/validations";
@@ -21,6 +22,7 @@ const LIMITE_TEXTO = 200;
 export async function togglePendenciaAction(pendenciaId: string, concluida: boolean): Promise<ActionResult> {
   const profile = await requireProfile();
   if (profile.role !== "medico") return { success: false, error: "Ação não permitida." };
+  await requireDoctor(profile.id);
   if (!isUuid(pendenciaId)) return { success: false, error: "Parâmetros inválidos." };
 
   try {
@@ -108,6 +110,7 @@ export async function assinarPlanoAction(planoId: string): Promise<ActionResult>
 
   try {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from pacientes where id=${profile.id}::uuid for update`);
       const plano = await tx
         .select({ id: planos.id, nome: planos.nome })
         .from(planos)

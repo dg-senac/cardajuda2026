@@ -322,16 +322,9 @@ create index if not exists "assinaturas_plano_id_idx"
 -- ---------------------------------------------------------------------------
 -- ROW LEVEL SECURITY
 -- ---------------------------------------------------------------------------
--- Este app NÃO usa Supabase Auth. Ele tem autenticação própria: bcrypt em
--- "profiles.password_hash" + cookie de sessão na tabela "sessions", e o banco
--- é acessado SÓ pelo servidor (src/db/index.ts e src/lib/* importam "server-only").
---
--- Com RLS ligado e sem políticas, todo SELECT volta VAZIO sem erro nenhum:
--- o sintoma é logar certo e ver as telas sem dado nenhum. Por isso desligamos.
---
--- Se você um dia expor estas tabelas pela chave "anon" via PostgREST, aí sim
--- reative o RLS e escreva políticas -- mas nunca com a senha do role "postgres".
--- ---------------------------------------------------------------------------
+-- Autenticação própria no servidor web/Edge. Clientes NÃO consultam PostgREST.
+-- RLS deny-by-default; postgres (owner/BYPASSRLS) continua atendendo ao web.
+-- Para banco existente, revisar/aplicar migrations/20261015_mobile_boundary.sql.
 do $$
 declare t text;
 begin
@@ -339,12 +332,12 @@ begin
     'profiles','pacientes','medicos','sessions','consultas','triagens','medicoes',
     'alertas','pendencias','lembretes','cardapio_semanal','planos','assinaturas'
   ] loop
-    execute format('alter table public.%I disable row level security', t);
+    execute format('alter table public.%I enable row level security', t);
   end loop;
 end $$;
 
 -- ---------------------------------------------------------------------------
--- CONFERÊNCIA: deve retornar as 13 tabelas com rls_ativo = false e o total de
+-- CONFERÊNCIA: deve retornar as 13 tabelas com rls_ativo = true e o total de
 -- índices/constraints esperado (a query final do script é o que o db:setup lê).
 -- ---------------------------------------------------------------------------
 select c.relname as tabela,

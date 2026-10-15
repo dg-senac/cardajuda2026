@@ -1,3 +1,4 @@
+import { calculateAge } from "@/lib/validations";
 import type { profiles, medicos, pacientes } from "@/db/schema";
 import type { Medico, Paciente, Profile } from "@/types";
 
@@ -22,7 +23,7 @@ export function toPaciente(profileRow: ProfileRow, pacienteRow: PacienteRow): Pa
     ...toProfile(profileRow),
     cpf: pacienteRow.cpf,
     dataNascimento: pacienteRow.dataNascimento,
-    idade: pacienteRow.idade,
+    idade: calculateAge(pacienteRow.dataNascimento),
     tipoSanguineo: pacienteRow.tipoSanguineo,
     altura: Number(pacienteRow.altura),
     genero: pacienteRow.genero,
