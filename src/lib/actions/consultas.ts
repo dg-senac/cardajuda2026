@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { consultas, medicos, pacientes, profiles } from "@/db/schema";
+import { isApprovedDoctor, requireDoctor, requirePatientAccess } from "@/lib/access";
 import { requireProfile } from "@/lib/actions/auth";
 import { reportDbFailure } from "@/lib/actions/db";
 import { isUuid, isValidIsoDate, isValidTime } from "@/lib/validations";
@@ -40,63 +41,9 @@ function validarAgendamento(
   return null;
 }
 
-const TITULOS = ["dr", "dra", "prof", "profa", "enfermeiro", "enfermeira", "esp", "sr", "sra"];
-
-/**
- * "Dra. Ana Beatriz" e "ana beatriz" são a mesma pessoa para o paciente que
- * digita o nome no formulário. Títulos, acentos e pontuação saem; só sobram os
- * tokens de nome, que é o que dá para comparar com segurança.
- */
-function tokensDeNome(nome: string): string[] {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((t) => t.length > 0 && !TITULOS.includes(t));
-}
-
-/**
- * O formulário de agendamento recebe o PROFISSIONAL COMO TEXTO, mas a agenda do
- * médico é lida e atualizada por `medico_id` (listConsultasByMedico e
- * updateConsultaStatusAction filtram por essa coluna). Sem gravar o id, toda
- * consulta criada pelo paciente nascia órfã: invisível para o profissional e
- * presa para sempre em "agendada", sem como marcar como realizada.
- *
- * Resolve-se pelo cadastro: os tokens digitados têm de estar TODOS no nome de um
- * médico, e esse médico tem de ser um só. Se houver ambiguidade ou nenhum match,
- * a linha entra com medico_id nulo -- como já entrava antes -- e a tela continua
- * mostrando o texto digitado.
- *
- * A varredura é no cadastro inteiro de propósito (dezenas de linhas numa clínica,
- * com `medicos_pkey`+`profiles_pkey` no caminho): comparar nome com acento e
- * título não tem como fazer num `WHERE` portável sem `unaccent`, que é extensão
- * opcional e pode não estar habilitada no projeto Supabase.
- */
-async function resolverMedicoPorNome(nomeDigitado: string): Promise<string | null> {
-  const alvo = tokensDeNome(nomeDigitado);
-  if (alvo.length === 0) return null;
-
-  const cadastrados = await db
-    .select({ id: medicos.id, nome: profiles.nome })
-    .from(medicos)
-    .innerJoin(profiles, eq(profiles.id, medicos.id));
-
-  const encontrados = new Set<string>();
-  for (const item of cadastrados) {
-    const nomes = new Set(tokensDeNome(item.nome));
-    // "Dra. Ana" digitado pelo paciente casa com "Ana Beatriz Souza" do cadastro;
-    // se casar com mais de um médico, a resposta é "ninguém" (null) em vez de um
-    // palpote -- vincular a consulta à pessoa errada é pior do que não vincular.
-    if (alvo.every((t) => nomes.has(t))) encontrados.add(item.id);
-  }
-  return encontrados.size === 1 ? encontrados.values().next().value! : null;
-}
-
 /** Hoje no fuso do servidor, em AAAA-MM-DD (a coluna `data` não tem hora). */
 function hojeIso(): string {
-  const agora = new Date();
-  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+  return new Intl.DateTimeFormat("en-CA", {timeZone:"America/Sao_Paulo", year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
 }
 
 export async function createConsultaPacienteAction(formData: FormData): Promise<ActionResult> {
@@ -125,15 +72,20 @@ export async function createConsultaPacienteAction(formData: FormData): Promise<
   try {
     // O texto digitado no form nunca vira id de médico às cegas: `paciente_id` e
     // companhia são ignorados de propósito, porque o vínculo é o PERFIL logado.
-    const medicoId = await resolverMedicoPorNome(profissional);
+    const escolhido = str(formData, "medico_id");
+    if (!isUuid(escolhido)) return { success: false, error: "Selecione um médico da lista." };
+    const rows = await db.select({ id: medicos.id, nome: profiles.nome, especialidade: medicos.especialidade }).from(medicos).innerJoin(profiles, eq(profiles.id, medicos.id)).where(eq(medicos.id, escolhido)).limit(1);
+    if (!rows[0]) return { success: false, error: "Médico não encontrado." };
+    const medicoId = rows[0].id;
+    if (!await isApprovedDoctor(medicoId)) return { success: false, error: "Este médico ainda aguarda aprovação." };
     await db.insert(consultas).values({
       pacienteId: profile.id,
       medicoId,
       nomePaciente: profile.nome,
       data,
       horario,
-      profissional,
-      especialidade,
+      profissional: rows[0].nome,
+      especialidade: rows[0].especialidade,
       motivo,
       status: "agendada",
     });
@@ -152,6 +104,7 @@ export async function createConsultaPacienteAction(formData: FormData): Promise<
 export async function createConsultaMedicoAction(formData: FormData): Promise<ActionResult> {
   const profile = await requireProfile();
   if (profile.role !== "medico") return { success: false, error: "Ação não permitida." };
+  await requireDoctor(profile.id);
 
   const pacienteId = str(formData, "paciente_id");
   const nomePaciente = str(formData, "nome_paciente");
@@ -183,6 +136,7 @@ export async function createConsultaMedicoAction(formData: FormData): Promise<Ac
     // Conferência + insert na MESMA transação: entre o select e o insert de
     // antes, o paciente podia ser apagado e a FK estourava no meio da action.
     await db.transaction(async (tx) => {
+      await requirePatientAccess(pacienteId);
       const alvo = await tx
         .select({ id: pacientes.id })
         .from(pacientes)
@@ -195,11 +149,11 @@ export async function createConsultaMedicoAction(formData: FormData): Promise<Ac
       await tx.insert(consultas).values({
         pacienteId,
         medicoId: profile.id,
-        nomePaciente,
+        nomePaciente: (await tx.select({ nome: profiles.nome }).from(profiles).where(eq(profiles.id, pacienteId)))[0].nome,
         data,
         horario,
-        profissional,
-        especialidade,
+        profissional: profile.nome,
+        especialidade: (await tx.select({ especialidade: medicos.especialidade }).from(medicos).where(eq(medicos.id, profile.id)))[0].especialidade,
         motivo,
         status: "agendada",
       });
@@ -248,6 +202,7 @@ export async function updateConsultaStatusAction(
 
   try {
     await db.transaction(async (tx) => {
+      await requireDoctor(profile.id);
       const alvo = await tx
         .select({ id: consultas.id, status: consultas.status })
         .from(consultas)
@@ -260,6 +215,7 @@ export async function updateConsultaStatusAction(
         throw new ForaDoEscopo();
       }
       if (consulta.status === status) return;
+      if (consulta.status !== "agendada") throw new RequisitoInvalido("Consulta finalizada não pode mudar de estado.");
 
       await tx.update(consultas).set({ status }).where(eq(consultas.id, consultaId));
 
@@ -271,6 +227,7 @@ export async function updateConsultaStatusAction(
       }
     });
   } catch (err) {
+    if (err instanceof RequisitoInvalido) return { success: false, error: err.message };
     if (err instanceof ForaDoEscopo) {
       return { success: false, error: "Esta consulta não existe ou não está no seu nome." };
     }

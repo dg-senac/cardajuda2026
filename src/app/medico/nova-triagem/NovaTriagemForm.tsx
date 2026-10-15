@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import toast from "react-hot-toast";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
@@ -20,7 +20,10 @@ export default function NovaTriagemForm({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  const requestId = useRef<string>("");
   function handleSubmit(formData: FormData) {
+    if (!requestId.current) requestId.current = crypto.randomUUID();
+    formData.set("request_id", requestId.current);
     setError(null);
     startTransition(async () => {
       const result = await createTriagemAction(formData);
@@ -29,6 +32,7 @@ export default function NovaTriagemForm({
         toast.error(result.error ?? "Não foi possível salvar.");
         return;
       }
+      requestId.current = "";
       toast.success("Triagem salva com sucesso!");
       router.push("/medico/consultas");
       router.refresh();

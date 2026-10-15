@@ -4,29 +4,21 @@ App de telemedicina com foco em cuidado cardíaco: pacientes acompanham mediçõ
 alertas; médicos fazem triagem, atendem e acompanham o histórico. Next.js 16 (App Router,
 Server Actions) + PostgreSQL via Drizzle ORM + Tailwind, empacotável como APK com Capacitor.
 
-## Começando do zero (do Supabase ao celular)
+## Android sem servidor Next.js próprio
 
-Quatro passos, na ordem. Cada um tem uma forma de conferir que deu certo — e o app **diz na tela**
-quando algum deles está faltando (página `/diagnostico`).
+O APK abre uma interface local React e acessa uma **Supabase Edge Function**. Exige
+internet, mas não pede URL/configuração a quem instala. Contas bcrypt e dados existentes
+são preservados; não há migração para Supabase Auth. RLS bloqueia acesso direto às tabelas.
 
-1. **Banco no Supabase.** Crie um projeto em [supabase.com](https://supabase.com). Em
-   `Project Settings → Database → Connection string → Session pooler`, copie a string inteira e
-   troque apenas `[YOUR-PASSWORD]` pela senha do banco.
-2. **Criar as tabelas.** No painel, `SQL Editor → New query`: cole o conteúdo de
-   [`supabase/schema.sql`](supabase/schema.sql) e clique em **Run** (é idempotente: não apaga nada).
-   Opcional: rode também [`supabase/seed.sql`](supabase/seed.sql) para ter contas de teste
-   (`maria@email.com` / `123456`).
-   *Alternativa por linha de comando:* `cp .env.example .env.local`, cole a `DATABASE_URL` e rode
-   `npm run db:setup`. Os mesmos comandos servem para conferir: `npm run db:check`.
-3. **Publicar o servidor web** (o app precisa dele: é ele que fala com o banco). Veja
-   [Publicar](#publicar-vercel-render-railway) abaixo.
-4. **Gerar o APK.** `Actions → Build Android APK` no GitHub, com a variável `APP_SERVER_URL`
-   apontando para o endereço do passo 3. Detalhes em [`ANDROID.md`](ANDROID.md).
+Siga [`ANDROID.md`](ANDROID.md): conferir banco existente, revisar a migração de
+segurança, aprovar médicos, publicar a função e gerar o APK. O build usa somente a
+variável pública `MOBILE_SUPABASE_URL`; não usa chave anon ou segredo PostgreSQL.
+O web Next.js continua separado e só precisa de hospedagem se você também quiser
+oferecer acesso pelo navegador.
 
-> **Login ou cadastro dando erro?** Abra `https://SEU-ENDERECO/diagnostico` (ou `/api/health`). A
-> página mostra se a `DATABASE_URL` chegou ao servidor, se o banco responde e quais das 13 tabelas
-> estão faltando — com o comando exato para resolver. As telas de login e cadastro mostram o mesmo
-> aviso no topo quando o banco não está pronto, em vez de uma tela de erro.
+> Banco real existente: **não execute reset, seed ou db:push**. Comece por
+> `npm run db:check` e `supabase/preflight.sql` (somente leitura). Sem acesso ao projeto,
+> não é possível afirmar que seu schema/RLS está correto.
 
 ## Banco de dados
 
@@ -38,8 +30,8 @@ tabelas `profiles` e `sessions`.
 cp .env.example .env.local     # cole a connection string do SEU projeto (nunca no README!)
 npm install
 npm run db:check               # host, DNS, conexão, tabelas, índices, integridade dos dados
-npm run db:setup               # aplica supabase/schema.sql (13 tabelas + FKs + índices)
-npm run db:seed                # opcional: contas de demonstração (senha 123456)
+npm run db:setup               # apenas instalação NOVA/revisada
+npm run db:seed                # apenas banco de teste descartável
 npm run dev
 ```
 
@@ -68,15 +60,15 @@ listagem virava varredura completa.
 
 A suíte padrão não precisa de banco: `npm test` lê arquivos e confere o catálogo de diagnóstico,
 a paridade `schema.ts` ↔ `schema.sql` e o que não pode existir no repositório (senha em commit).
-As duas suítes abaixo **executam** SQL e só rodam quando você aponta um servidor:
+As suítes abaixo **executam** SQL e só rodam quando você aponta um servidor:
 
 ```bash
 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/cardajuda_dev npm test
 ```
 
-Cada suíte cria para si um banco derivado (`<nome>_integ` e `<nome>_actions`) e o recria do zero:
+Cada suíte cria para si um banco derivado (`<nome>_integ`, `<nome>_actions` e `<nome>_mobile`) e o recria do zero:
 o banco escrito na variável **nunca** é apagado, então um typo não derruba produção. O papel
-precisa de `CREATEDB` (padrão no Postgres local e no Supabase). O que cada uma garante:
+precisa de `CREATEDB`. Use somente Postgres LOCAL descartável, nunca Supabase de produção. O que cada uma garante:
 
 - `scripts/db-integration.test.mjs` — o `schema.sql` aplica num banco vazio e é idempotente, o
   `seed.sql` roda duas vezes sem duplicar linha, os CHECK/FK/índices funcionam no plano de
@@ -85,6 +77,9 @@ precisa de `CREATEDB` (padrão no Postgres local e no Supabase). O que cada uma 
   confere o que sobra no banco quando a gravação falha no meio: se o perfil é desfeito junto com
   o paciente que falhou, se uma medição sem alerta não deixa medição órfã, se um médico consegue
   mexer na consulta do outro, e se `%` digitado na busca vira curinga.
+
+- `scripts/mobile-integration.test.mjs` — API Android real com isolamento de pacientes,
+  aprovação/vínculo médico, sessões, persistência e RLS/grants públicos negados.
 
 ### Segurança
 
@@ -96,23 +91,23 @@ precisa de `CREATEDB` (padrão no Postgres local e no Supabase). O que cada uma 
   leu o histórico. Depois atualize `.env.local` e o secret do host.
 - O banco é acessado apenas pelo servidor; nada de `NEXT_PUBLIC_DATABASE_URL`.
 
-## Publicar (Vercel, Render, Railway)
+## Publicar somente o web (opcional; não necessário para Android)
 
-O app tem Server Actions e usa o Postgres no servidor: precisa de um host que rode Node — **não**
+O web tem Server Actions e usa o Postgres no servidor: precisa de um host que rode Node — **não**
 funciona como site estático (GitHub Pages, Netlify static...).
 
 | O que fazer | Onde |
 | --- | --- |
 | Conectar o repositório | Vercel → New Project → importe o repositório |
 | `DATABASE_URL` | Settings → Environment Variables → adicione a connection string (Production **e** Preview) |
-| `DB_DEBUG_ERRORS=1` (opcional) | mostra o detalhe técnico do erro de banco na tela — útil enquanto está configurando, remova depois |
+| `DB_DEBUG_ERRORS=1` (opcional) | somente desenvolvimento local; desativado em produção |
 | Deploy | cada push na `main` publica sozinho |
 
 Depois do primeiro deploy, confirme em `https://SEU-ENDERECO/api/health`: deve responder
 `{"ok":true}`. Se responder `{"ok":false,...}`, o próprio JSON diz o que falta.
 
-O celular (APK) aponta para esse endereço — veja [`ANDROID.md`](ANDROID.md). O APK **não** leva
-`DATABASE_URL`: o banco é acessado só pelo servidor.
+O APK **não usa esse endereço**. Acessa a Edge Function Supabase conforme [`ANDROID.md`](ANDROID.md);
+`DATABASE_URL` permanece exclusivamente nos servidores web/Edge.
 
 ## Scripts úteis
 
@@ -123,3 +118,5 @@ npm test            # sem banco: diagnóstico + paridade + checagens do APK (+ S
 npm run build       # build de produção (não precisa de DATABASE_URL)
 npm run android:build   # gera o APK (JDK 21 + Android SDK)
 ```
+
+Relatório desta entrega e pendências verificáveis: [`docs/ENTREGA.md`](docs/ENTREGA.md).

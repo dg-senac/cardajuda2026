@@ -1,60 +1,45 @@
-#!/usr/bin/env node
-/**
- * Ajustes no projeto Android gerado pelo Capacitor (`android/` é ignorado no git,
- * ou seja: o Capacitor recria a pasta a cada `npx cap add android`).
- *
- * Hoje faz uma coisa só: liberar tráfego HTTP sem TLS.
- *
- * Por quê: o app pode ser apontado, dentro do próprio aplicativo, para um servidor
- * de teste na rede local (`http://192.168.0.10:3000`). Do Android 9 em diante,
- * `usesCleartextTraffic` vem desligado em quem tem targetSdk >= 28, e o download
- * simplesmente falha sem dizer o motivo ("ERR_CLEARTEXT_NOT_PERMITTED"). Servidores
- * em produção usam https e não precisam disto.
- *
- * Rode depois de `npx cap add android` / `npx cap sync android`:
- *   node scripts/android-patch.mjs
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MANIFESTO = path.join(RAIZ, "android", "app", "src", "main", "AndroidManifest.xml");
-
-const ATRIBUTO = 'android:usesCleartextTraffic="true"';
-
 export function aplicarPatch(xml) {
-  if (xml.includes("usesCleartextTraffic")) {
-    return { xml, mudou: false, motivo: "já configura usesCleartextTraffic" };
+  let result = xml;
+  for (const attr of ["usesCleartextTraffic", "allowBackup"]) {
+    const regex = new RegExp(`android:${attr}="[^"]*"`);
+    result = regex.test(result)
+      ? result.replace(regex, `android:${attr}="false"`)
+      : result.replace(
+          /<application\b/,
+          `<application android:${attr}="false"`,
+        );
   }
-  const comAtributo = xml.replace(/<application\b(\s)/, `<application ${ATRIBUTO}$1`);
-  if (comAtributo === xml) {
-    return { xml, mudou: false, motivo: "não encontrei a tag <application> no manifesto" };
-  }
-  return { xml: comAtributo, mudou: true, motivo: "usesCleartextTraffic adicionado" };
+  return { xml: result, mudou: xml !== result };
 }
-
-function principal() {
-  if (!fs.existsSync(MANIFESTO)) {
-    console.log(
-      "android:patch -- pasta android/ ainda não existe (rode `npx cap add android` antes). Nada a fazer.",
-    );
-    return;
-  }
-
-  const antes = fs.readFileSync(MANIFESTO, "utf8");
-  const { xml, mudou, motivo } = aplicarPatch(antes);
-
-  if (mudou) {
-    fs.writeFileSync(MANIFESTO, xml, "utf8");
-    console.log(`android:patch -- ${motivo} em ${path.relative(RAIZ, MANIFESTO)}`);
-    console.log("  (permite apontar o app para um servidor de teste em http:// na rede local)");
-  } else {
-    console.log(`android:patch -- nada a fazer (${motivo}).`);
-  }
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  principal();
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const file = "android/app/src/main/AndroidManifest.xml";
+  if (!fs.existsSync(file))
+    throw new Error("Execute cap add android primeiro.");
+  let xml = aplicarPatch(fs.readFileSync(file, "utf8")).xml;
+  xml = xml.replace(/android:icon="[^"]*"/, 'android:icon="@drawable/brand_icon"').replace(/android:roundIcon="[^"]*"/, 'android:roundIcon="@drawable/brand_icon"');
+  xml = xml.replace(/<application\b/, '<application android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"');
+  xml = xml.replace(/(android:fullBackupContent="false"|android:dataExtractionRules="@xml\/data_extraction_rules")(?=[\s\S]*\1)/g, '');
+  fs.writeFileSync(file, xml);
+  fs.mkdirSync("android/app/src/main/res/xml", { recursive: true });
+  fs.writeFileSync("android/app/src/main/res/xml/data_extraction_rules.xml", `<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="root" path="."/><exclude domain="file" path="."/><exclude domain="database" path="."/><exclude domain="sharedpref" path="."/><exclude domain="external" path="."/></cloud-backup><device-transfer><exclude domain="root" path="."/><exclude domain="file" path="."/><exclude domain="database" path="."/><exclude domain="sharedpref" path="."/><exclude domain="external" path="."/></device-transfer></data-extraction-rules>`);
+  const res = "android/app/src/main/res";
+  fs.mkdirSync(`${res}/drawable`, { recursive: true });
+  fs.writeFileSync(`${res}/drawable/brand_icon.xml`, `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+<path android:fillColor="#F3D4EE" android:pathData="M0,0h108v108h-108z"/>
+<path android:fillColor="#8B008B" android:pathData="M54,84C46,77 22,61 22,43C22,25 43,20 54,35C65,20 86,25 86,43C86,61 62,77 54,84z"/>
+<path android:strokeColor="#FFFFFF" android:strokeWidth="3" android:strokeLineJoin="round" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M29,52L40,52L46,40L53,65L60,46L65,55L79,55"/>
+</vector>`);
+  fs.writeFileSync(`${res}/values/colors.xml`, `<?xml version="1.0" encoding="utf-8"?><resources><color name="colorPrimary">#8B008B</color><color name="colorPrimaryDark">#4B0049</color><color name="colorAccent">#B13FB1</color><color name="brandBackground">#FDF7FB</color></resources>`);
+  fs.writeFileSync(`${res}/values/styles.xml`, `<?xml version="1.0" encoding="utf-8"?><resources>
+<style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar"><item name="colorPrimary">@color/colorPrimary</item><item name="colorAccent">@color/colorAccent</item><item name="android:windowLightStatusBar">true</item><item name="android:statusBarColor">@color/brandBackground</item><item name="android:navigationBarColor">@color/brandBackground</item><item name="android:windowLightNavigationBar">true</item><item name="android:windowSoftInputMode">adjustResize</item></style>
+<style name="AppTheme.NoActionBar" parent="AppTheme"><item name="windowActionBar">false</item><item name="windowNoTitle">true</item></style>
+<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen"><item name="windowSplashScreenBackground">@color/brandBackground</item><item name="windowSplashScreenAnimatedIcon">@drawable/brand_icon</item><item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item></style>
+</resources>`);
 }

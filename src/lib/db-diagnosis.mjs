@@ -502,6 +502,7 @@ export function userFacingDbMessage(purpose, diagnosis, showDetails) {
  * @returns {boolean} true quando vale a pena mostrar o detalhe técnico na tela.
  */
 export function dbDetailsEnabled(env = process.env) {
+  if (env.NODE_ENV === "production") return false;
   if (env.DB_DEBUG_ERRORS === "1" || env.DB_DEBUG_ERRORS === "true") return true;
   return env.NODE_ENV !== "production";
 }

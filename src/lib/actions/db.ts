@@ -55,7 +55,7 @@ function foreignKeyMessage(diagnosis: DbDiagnosis): string | null {
 /** Loga a causa raiz e devolve a mensagem curta para a tela. */
 export function reportDbFailure(context: string, error: unknown, fallback: string): string {
   const diagnosis = diagnoseDbError(error);
-  console.error(`[db] ${context} falhou\n${formatDbDiagnosis(diagnosis)}`);
+  console.error(`[db] ${context} falhou: ${diagnosis.code ?? "indisponível"}${process.env.NODE_ENV === "production" ? "" : "\n" + formatDbDiagnosis(diagnosis)}`);
 
   const friendly = uniqueViolationMessage(diagnosis) ?? foreignKeyMessage(diagnosis);
   if (friendly) return friendly;

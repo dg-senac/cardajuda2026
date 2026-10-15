@@ -49,23 +49,26 @@ export async function createSession(userId: string): Promise<void> {
   });
 }
 
-export async function destroySession(): Promise<void> {
+export async function destroySession(): Promise<boolean> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
 
   // O cookie tem que sair MESMO SE o delete falhar. Antes, um banco fora do ar
   // fazia o logout voltar com exceção: o cookie continuava válido e o usuário
   // preso logado (num app de saúde em tablet compartilhado, isso é problema).
+  let revoked = true;
   if (token) {
     try {
       await db.delete(sessions).where(eq(sessions.id, token));
     } catch (error) {
+      revoked = false;
       console.error(
         `[session] não consegui apagar a sessão do banco (o cookie foi removido mesmo assim)\n${formatDbDiagnosis(diagnoseDbError(error))}`,
       );
     }
   }
   cookieStore.delete(SESSION_COOKIE);
+  return revoked;
 }
 
 export async function getCurrentProfile(): Promise<Profile | null> {

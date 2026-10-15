@@ -1,81 +1,53 @@
-name: Build Android APK
-
-# Gera o APK do Carda Ajuda.
-#
-# O APK é um "casco" (WebView) que abre o sistema publicado: o servidor Next.js
-# com o banco. Ele NÃO carrega o app sozinho -- quem guarda os dados é o Postgres
-# do Supabase, do outro lado do servidor.
-#
-# Por isso o endereço do servidor entra por FORA do código:
-#   * Settings -> Secrets and variables -> Actions -> Variables ->
-#     New repository variable -> APP_SERVER_URL = https://seu-app.vercel.app
-#   * Sem essa variável o APK abre a tela "Endereço do servidor" e a pessoa
-#     digita (ou cola) o endereço uma vez; fica guardado no aparelho.
-#   * Com a variável definida, o build CONFERE se o endereço responde. Se não
-#     responder, o build para com uma mensagem -- é isso que evita o APK que
-#     abre com "Página da web não disponível / ERR_NAME_NOT_RESOLVED".
-#
-# Para gerar o APK apontando para um endereço diferente sem mexer nas variáveis:
-# Actions -> Build Android APK -> Run workflow -> preencha "server_url".
-
+name: Gerar APK Android
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
-    inputs:
-      server_url:
-        description: "Endereço do servidor (ex.: https://cardiajuda.vercel.app). Vazio = o app pergunta no primeiro uso."
-        required: false
-        default: ""
-
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-local-only
+          POSTGRES_DB: cardajuda_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Definir endereço do servidor (www/config.js)
-        run: node scripts/android-config.mjs
+          cache: npm
+      - run: npm ci
+      - run: npm test
         env:
-          APP_SERVER_URL: ${{ inputs.server_url || vars.APP_SERVER_URL }}
-          APP_SERVER_URL_CHECK: ${{ vars.APP_SERVER_URL_CHECK || '1' }}
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+          TEST_DATABASE_URL: postgresql://postgres:ci-local-only@127.0.0.1:5432/cardajuda_test
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Bundle local interface (public configuration only)
+        run: npm run mobile:build
+        env:
+          MOBILE_SUPABASE_URL: ${{ vars.MOBILE_SUPABASE_URL }}
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '21'
-
-      - name: Capacitor add android
-        run: npx cap add android
-
-      - name: Capacitor sync
-        run: npx cap sync android
-
-      - name: Ajustes do projeto Android
-        run: node scripts/android-patch.mjs
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x android/gradlew
-
-      - name: Build Debug APK
-        run: cd android && ./gradlew assembleDebug --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: android-actions/setup-android@v3
+      - name: Assemble APK
+        run: node scripts/android-build.mjs
+      - uses: actions/upload-artifact@v4
         with:
-          name: app-debug
+          name: Carda-Ajuda-Android-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Resumo
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          echo '### APK de teste gerado' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Baixe Carda-Ajuda-Android-debug, extraia app-debug.apk e instale. Exige internet. Não é release de produção.' >> "$GITHUB_STEP_SUMMARY"
