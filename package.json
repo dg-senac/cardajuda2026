@@ -7,6 +7,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "node --test",
     "db:check": "node scripts/db-check.mjs",
     "db:setup": "node scripts/db-setup.mjs",
     "db:seed": "node scripts/db-setup.mjs --seed",
@@ -14,10 +15,11 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "android:config": "node scripts/android-config.mjs",
     "cap:sync": "cap sync",
     "cap:open:android": "cap open android",
-    "android:build": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug",
-    "test": "node --test"
+    "android:patch": "node scripts/android-patch.mjs",
+    "android:build": "node scripts/android-config.mjs && (npx cap sync android || (npx cap add android && npx cap sync android)) && node scripts/android-patch.mjs && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

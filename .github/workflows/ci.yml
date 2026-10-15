@@ -1,0 +1,48 @@
+name: CI (web)
+
+# Confere o app web: tipos, lint, testes e build.
+#
+# O build roda SEM DATABASE_URL de propósito: desde que a conexão passou a ser
+# criada na primeira consulta (src/db/index.ts), o `next build` não precisa do
+# banco -- e o workflow do APK também não. Se algum arquivo voltar a exigir a
+# variável no import, este CI quebra e avisa.
+#
+# Os testes de banco de verdade são opcionais: só rodam com TEST_DATABASE_URL
+# definido (veja o README). Sem ela, a suíte estática (diagnóstico, paridade
+# schema.ts <-> schema.sql, arquivos obrigatórios do APK) roda normalmente.
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        run: npm run build

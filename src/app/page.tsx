@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
-import { getCurrentProfile } from "@/lib/session";
+import { lookupCurrentProfile } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const profile = await getCurrentProfile();
+  // lookupCurrentProfile não lança com o banco fora do ar: manda para /login,
+  // que mostra o AvisoBanco com o que fazer (antes a home virava erro 500).
+  const { profile } = await lookupCurrentProfile();
 
   if (!profile) {
     redirect("/login");

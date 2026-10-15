@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <title>Carda Ajuda</title>
+    <style>
+      :root {
+        --primaria: #8b008b;
+        --primaria-escura: #5c005c;
+        --rosa: #fdf2fb;
+        --texto: #2f2333;
+        --texto-suave: #7a6b80;
+        --borda: #eddfe9;
+        --alerta: #c0392b;
+        --alerta-claro: #fdecea;
+        --atencao: #b7791f;
+        --atencao-claro: #fff7e6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px 18px calc(24px + env(safe-area-inset-bottom));
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: var(--texto);
+        background: linear-gradient(180deg, #faf5fb 0%, #f3e7f4 100%);
+      }
+      .tela { width: 100%; max-width: 420px; }
+      .topo { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+      .logo {
+        width: 76px; height: 76px; border-radius: 24px; background: #fff;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 10px 24px rgba(139, 0, 139, 0.16);
+      }
+      h1 { margin: 8px 0 0; font-size: 22px; font-weight: 800; color: var(--primaria-escura); }
+      .subtitulo { margin: 0; font-size: 13px; color: var(--texto-suave); }
+      .cartao {
+        margin-top: 18px; background: #fff; border: 1px solid var(--borda);
+        border-radius: 24px; padding: 20px; box-shadow: 0 12px 30px rgba(92, 0, 92, 0.08);
+      }
+      h2 { margin: 0 0 6px; font-size: 15px; font-weight: 800; color: var(--primaria-escura); }
+      p { margin: 0 0 10px; font-size: 13px; line-height: 1.55; color: var(--texto-suave); }
+      label { display: block; margin: 12px 0 6px; font-size: 12.5px; font-weight: 700; color: var(--primaria-escura); }
+      input {
+        width: 100%; padding: 13px 14px; font-size: 14px; color: var(--texto);
+        border: 1.5px solid var(--borda); border-radius: 14px; background: #fff; outline: none;
+      }
+      input:focus { border-color: var(--primaria); box-shadow: 0 0 0 3px rgba(139, 0, 139, 0.12); }
+      button {
+        width: 100%; margin-top: 14px; padding: 14px 18px; font-size: 14px; font-weight: 700;
+        color: #fff; background: var(--primaria); border: 0; border-radius: 999px;
+        box-shadow: 0 8px 18px rgba(139, 0, 139, 0.32);
+      }
+      button:active { transform: scale(0.98); }
+      button:disabled { opacity: 0.6; }
+      button.secundario {
+        margin-top: 8px; background: transparent; color: var(--texto-suave); box-shadow: none;
+        font-weight: 600; font-size: 12.5px; text-decoration: underline;
+      }
+      .aviso {
+        margin-top: 12px; padding: 10px 12px; border-radius: 14px; font-size: 12.5px;
+        font-weight: 600; line-height: 1.5;
+      }
+      .aviso.erro { background: var(--alerta-claro); color: var(--alerta); }
+      .aviso.info { background: var(--atencao-claro); color: var(--atencao); }
+      .aviso.oculto, .oculto { display: none; }
+      .carregando { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--texto-suave); }
+      .spinner {
+        width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+        border: 2.5px solid rgba(139, 0, 139, 0.25); border-top-color: var(--primaria);
+        animation: girar 0.8s linear infinite;
+      }
+      @keyframes girar { to { transform: rotate(360deg); } }
+      details { margin-top: 14px; }
+      summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--primaria); }
+      details p { margin: 8px 0 0; font-size: 12px; }
+      code { background: var(--rosa); padding: 1px 5px; border-radius: 6px; font-size: 11.5px; }
+      .rodape { margin-top: 14px; text-align: center; font-size: 11.5px; color: var(--texto-suave); }
+    </style>
+  </head>
+  <body>
+    <div class="tela">
+      <div class="topo">
+        <div class="logo">
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#8b008b" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20.5s-8.5-5.5-8.5-11.6C3.5 5.9 5.9 3.5 8.7 3.5c1.7 0 3.2.9 4.1 2.3" />
+            <path d="M15.2 5.8c1.9-1.4 3.4-2.3 5.1-2.3 2.8 0 5 2.4 5 5.4 0 6.1-8.5 11.6-8.5 11.6" />
+          </svg>
+        </div>
+        <h1>Carda Ajuda</h1>
+        <p class="subtitulo">Seu cuidado cardíaco, todos os dias.</p>
+      </div>
+
+      <div class="cartao">
+        <!-- 1) tentando conectar no endereço que já estava salvo -->
+        <div id="conectando" class="oculto">
+          <div class="carregando">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Conectando…</span>
+          </div>
+          <p id="conectando-endereco" style="margin-top: 10px"></p>
+        </div>
+
+        <!-- 2) pedindo o endereço do servidor -->
+        <div id="formulario">
+          <h2>Endereço do servidor</h2>
+          <p>
+            Este aplicativo guarda pacientes, médicos e consultas em um servidor. Informe o endereço
+            onde o sistema está publicado para entrar.
+          </p>
+
+          <div id="mensagem" class="aviso oculto"></div>
+
+          <label for="endereco">Endereço</label>
+          <input
+            id="endereco"
+            type="url"
+            inputmode="url"
+            autocomplete="url"
+            spellcheck="false"
+            placeholder="https://seu-app.vercel.app"
+          />
+
+          <button id="conectar" type="button">Conectar</button>
+          <button id="esquecer" type="button" class="secundario oculto">Esquecer endereço salvo</button>
+
+          <details>
+            <summary>Onde encontro esse endereço?</summary>
+            <p>
+              É o mesmo endereço que você abre no navegador do computador. Se o sistema já está
+              publicado, ele se parece com <code>https://cardiajuda.vercel.app</code>.
+            </p>
+            <p>
+              Para testar com o servidor rodando na sua máquina, use o IP do computador com a porta:
+              <code>http://192.168.0.10:3000</code> (o celular precisa estar na mesma rede Wi-Fi).
+            </p>
+            <p>
+              Dica: se digitar só o domínio, o app completa com <code>https://</code>.
+            </p>
+          </details>
+        </div>
+      </div>
+
+      <p class="rodape" id="rodape">Carda Ajuda • telemedicina cardíaca</p>
+    </div>
+
+    <!-- Endereço padrão gerado no build (scripts/android-config.mjs). Vazio = o
+         app pergunta na primeira vez que abre. -->
+    <script src="./config.js"></script>
+    <script>
+      (function () {
+        var CHAVE = "cardiajuda.server.url";
+        var PADRAO = (window.CARDAJUDA_SERVER_URL || "").trim();
+        var LIMITE_MS = 9000;
+
+        var elConectando = document.getElementById("conectando");
+        var elConectandoEndereco = document.getElementById("conectando-endereco");
+        var elFormulario = document.getElementById("formulario");
+        var elEndereco = document.getElementById("endereco");
+        var elBotao = document.getElementById("conectar");
+        var elEsquecer = document.getElementById("esquecer");
+        var elMensagem = document.getElementById("mensagem");
+        var elRodape = document.getElementById("rodape");
+
+        function normalizar(bruto) {
+          var texto = (bruto || "").trim().replace(/\s+/g, "");
+          if (!texto) return "";
+          if (!/^https?:\/\//i.test(texto)) texto = "https://" + texto;
+          texto = texto.replace(/\/+$/, "");
+          try {
+            var url = new URL(texto);
+            if (!url.hostname || url.hostname.indexOf(".") === -1) return { erro: "Informe um endereço completo, como https://seu-app.vercel.app" };
+            if (url.protocol !== "http:" && url.protocol !== "https:") return { erro: "O endereço precisa começar com http:// ou https://." };
+            return { valor: url.protocol + "//" + url.host };
+          } catch (e) {
+            return { erro: "Esse endereço não parece válido. Exemplo: https://seu-app.vercel.app" };
+          }
+        }
+
+        function lerSalvo() {
+          try {
+            return window.localStorage.getItem(CHAVE) || PADRAO;
+          } catch (e) {
+            return PADRAO;
+          }
+        }
+
+        function salvar(valor) {
+          try {
+            window.localStorage.setItem(CHAVE, valor);
+          } catch (e) {
+            /* modo privado: segue sem salvar */
+          }
+        }
+
+        function esquecer() {
+          try {
+            window.localStorage.removeItem(CHAVE);
+          } catch (e) {}
+        }
+
+        function mensagem(texto, tipo) {
+          if (!texto) {
+            elMensagem.className = "aviso oculto";
+            elMensagem.textContent = "";
+            return;
+          }
+          elMensagem.className = "aviso " + (tipo || "erro");
+          elMensagem.textContent = texto;
+        }
+
+        /**
+         * O servidor responde? Usa o plugin nativo (sem CORS e sem bloqueio de
+         * conteúdo misto) e cai para o fetch quando a página é aberta fora do app.
+         * Qualquer resposta HTTP conta como "no ar" -- inclusive 500: o app
+         * precisa abrir para mostrar o próprio diagnóstico.
+         */
+        function testar(endereco) {
+          var plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+          var alvo = endereco + "/api/health";
+
+          if (plugin && typeof plugin.get === "function") {
+            return plugin
+              .get({ url: alvo, connectTimeout: LIMITE_MS, readTimeout: LIMITE_MS })
+              .then(function () {
+                return { ok: true };
+              })
+              .catch(function () {
+                return { ok: false, motivo: "Não consegui falar com " + endereco + "." };
+              });
+          }
+
+          var controle = typeof AbortController !== "undefined" ? new AbortController() : null;
+          var timer = setTimeout(function () {
+            if (controle) controle.abort();
+          }, LIMITE_MS);
+
+          return fetch(alvo, { mode: "no-cors", cache: "no-store", signal: controle ? controle.signal : undefined })
+            .then(function () {
+              return { ok: true };
+            })
+            .catch(function () {
+              return { ok: false, motivo: "Não consegui falar com " + endereco + "." };
+            })
+            .then(function (resultado) {
+              clearTimeout(timer);
+              return resultado;
+            });
+        }
+
+        function conectar(endereco, mostrarTela) {
+          if (mostrarTela) {
+            elFormulario.classList.add("oculto");
+            elConectando.classList.remove("oculto");
+            elConectandoEndereco.textContent = endereco;
+          }
+          return testar(endereco).then(function (resultado) {
+            if (resultado.ok) {
+              salvar(endereco);
+              window.location.replace(endereco);
+              return;
+            }
+            elConectando.classList.add("oculto");
+            elFormulario.classList.remove("oculto");
+            elEndereco.value = endereco;
+            elEsquecer.classList.remove("oculto");
+            mensagem(
+              resultado.motivo +
+                " Verifique se o servidor está no ar, se o endereço está certo e se este aparelho tem internet.",
+              "erro",
+            );
+            elBotao.disabled = false;
+          });
+        }
+
+        elBotao.addEventListener("click", function () {
+          var normalizado = normalizar(elEndereco.value);
+          if (normalizado.erro) {
+            mensagem(normalizado.erro, "erro");
+            return;
+          }
+          elBotao.disabled = true;
+          mensagem("");
+          conectar(normalizado.valor, true).then(function () {
+            elBotao.disabled = false;
+          });
+        });
+
+        elEsquecer.addEventListener("click", function () {
+          esquecer();
+          elEndereco.value = "";
+          elEsquecer.classList.add("oculto");
+          mensagem("Endereço esquecido. Informe outro para conectar.", "info");
+        });
+
+        elEndereco.addEventListener("keydown", function (evento) {
+          if (evento.key === "Enter") {
+            evento.preventDefault();
+            elBotao.click();
+          }
+        });
+
+        // ---------------------------------------------------------------- início
+        var trocar = /[?&]trocar=1/.test(window.location.search);
+        var salvo = lerSalvo();
+
+        elRodape.textContent = "Carda Ajuda • telemedicina cardíaca";
+
+        if (!salvo || trocar) {
+          elEndereco.value = salvo || "";
+          if (salvo) elEsquecer.classList.remove("oculto");
+          if (trocar && salvo) {
+            mensagem("Informe outro endereço de servidor e toque em Conectar.", "info");
+          }
+          elEndereco.focus();
+          return;
+        }
+
+        elEndereco.value = salvo;
+        elEsquecer.classList.remove("oculto");
+        conectar(salvo, true);
+      })();
+    </script>
+  </body>
+</html>

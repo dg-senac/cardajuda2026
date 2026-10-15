@@ -4,6 +4,7 @@ import { and, eq, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, sessions } from "@/db/schema";
 import { diagnoseDbError, formatDbDiagnosis } from "@/lib/db-diagnosis.mjs";
+import type { DbDiagnosis } from "@/lib/db-diagnosis.d.mts";
 import type { Profile } from "@/types";
 
 export const SESSION_COOKIE = "cardiajuda_session";
@@ -68,23 +69,55 @@ export async function destroySession(): Promise<void> {
 }
 
 export async function getCurrentProfile(): Promise<Profile | null> {
+  return (await lookupCurrentProfile()).profile;
+}
+
+export interface SessionLookup {
+  profile: Profile | null;
+  /** Preenchido só quando a consulta ao banco falhou (banco fora do ar, tabela ausente...). */
+  failure: DbDiagnosis | null;
+}
+
+/**
+ * Igual a `getCurrentProfile`, mas NUNCA lança.
+ *
+ * Por que existe: cada página/layout chamava `getCurrentProfile()` direto. Com o
+ * banco inacessível (DATABASE_URL errada, Supabase pausado, `schema.sql` não
+ * aplicado) o `select` estourava e a pessoa recebia a tela de erro do Next --
+ * inclusive em /login, justamente a tela onde ela conseguiria ler o aviso e
+ * resolver. Aqui o erro vira um diagnóstico que a página mostra em português.
+ */
+export async function lookupCurrentProfile(): Promise<SessionLookup> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  if (!token) return { profile: null, failure: null };
 
-  const rows = await db
-    .select({ profile: profiles, expiresAt: sessions.expiresAt })
-    .from(sessions)
-    .innerJoin(profiles, eq(sessions.userId, profiles.id))
-    .where(eq(sessions.id, token))
-    .limit(1);
-
-  const row = rows[0];
-  if (!row) return null;
-  if (row.expiresAt.getTime() < Date.now()) {
-    await db.delete(sessions).where(eq(sessions.id, token));
-    return null;
+  let rows: { profile: typeof profiles.$inferSelect; expiresAt: Date }[];
+  try {
+    rows = await db
+      .select({ profile: profiles, expiresAt: sessions.expiresAt })
+      .from(sessions)
+      .innerJoin(profiles, eq(sessions.userId, profiles.id))
+      .where(eq(sessions.id, token))
+      .limit(1);
+  } catch (error) {
+    const diagnosis = diagnoseDbError(error);
+    console.error(
+      `[session] não consegui ler a sessão do cookie (o usuário será tratado como deslogado)\n${formatDbDiagnosis(diagnosis)}`,
+    );
+    return { profile: null, failure: diagnosis };
   }
 
-  return rowToProfile(row.profile);
+  const row = rows[0];
+  if (!row) return { profile: null, failure: null };
+
+  if (row.expiresAt.getTime() < Date.now()) {
+    await db.delete(sessions).where(eq(sessions.id, token)).catch(() => {
+      // sessão vencida: se o delete falhar agora, a limpeza acontece no próximo
+      // login do mesmo usuário (createSession) -- não é motivo para erro na tela.
+    });
+    return { profile: null, failure: null };
+  }
+
+  return { profile: rowToProfile(row.profile), failure: null };
 }
