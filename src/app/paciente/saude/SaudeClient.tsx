@@ -21,7 +21,10 @@ export default function SaudeClient({ medicoes }: { medicoes: Medicao[] }) {
 
   const ultima = medicoes[0] ?? null;
 
+  const requestId = useRef<string>("");
   function handleSubmit(formData: FormData) {
+    if (!requestId.current) requestId.current = crypto.randomUUID();
+    formData.set("request_id", requestId.current);
     setError(null);
     startTransition(async () => {
       const result = await createMedicaoAction(formData);
@@ -30,6 +33,7 @@ export default function SaudeClient({ medicoes }: { medicoes: Medicao[] }) {
         toast.error(result.error ?? "Não foi possível registrar.");
         return;
       }
+      requestId.current = "";
       toast.success("Medição registrada com sucesso!");
       formRef.current?.reset();
     });

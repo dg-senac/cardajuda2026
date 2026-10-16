@@ -24,6 +24,86 @@ export function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+/**
+ * Só dígitos: o `pacientes.cpf` é SEMPRE gravado sem máscara, então toda
+ * comparação com o banco precisa usar esta forma. Comparar o valor digitado
+ * ("529.982.247-25") com a coluna ("52998224725") nunca casa -- era exatamente o
+ * que o `signupPacienteAction` fazia antes, o que deixava a checagem de CPF
+ * duplicado morta e abria janela para dois cadastros simultâneos passarem.
+ */
+export function normalizeCpf(cpf: string): string {
+  return cpf.replace(/\D/g, "");
+}
+
+/**
+ * Formato de uuid aceito pelo Postgres.
+ *
+ * SÓ hexágono nos 8-4-4-4-12 grupos: não exigir versão 4 nem variante "10xx",
+ * porque ids de seed/migração (ex.: dddddddd-0000-...) são uuids perfeitamente
+ * válidos no `uuid` do Postgres e uma regexp rígida aqui recusaria dados reais.
+ */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Data no formato que a coluna `date` do Postgres aceita (YYYY-MM-DD, calendário válido). */
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/** Hora HH:MM (ou HH:MM:SS), como o `type="time"` do navegador envia. */
+export function isValidTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(value);
+}
+
+/**
+ * Altura em metros. `pacientes.altura` é numeric(5,2): "170" (centímetros
+ * digitados no lugar de "1.70") estoura o tipo e o Postgres responde 22003
+ * "numeric field overflow" no meio do cadastro.
+ */
+export function validateHeight(meters: number): boolean {
+  return Number.isFinite(meters) && meters >= 0.3 && meters <= 2.8;
+}
+
+/**
+ * Faixas fisicamente possíveis -- fora delas a linha é rejeitada antes do INSERT.
+ *
+ * Recebe `string` (o `NaN` do `Number("")` perde o nome do campo): o campo é
+ * nomeado na mensagem, porque "valor inválido" em uma tela com três inputs não
+ * diz em qual a pessoa errou.
+ */
+export function validateMeasurement(values: {
+  sistolica: string | number;
+  diastolica: string | number;
+  glicemia: string | number;
+}): string | null {
+  const limites = [
+    ["sistólica", values.sistolica, 50, 300],
+    ["diastólica", values.diastolica, 30, 200],
+    ["glicemia", values.glicemia, 20, 1500],
+  ] as const;
+
+  const numericos: Record<string, number> = {};
+  for (const [label, bruto, min, max] of limites) {
+    const valor = typeof bruto === "number" ? bruto : /^\d{1,9}$/.test(String(bruto).trim()) ? Number(bruto) : Number.NaN;
+    numericos[label] = valor;
+    if (!Number.isInteger(valor) || valor < min || valor > max) {
+      return `${label} deve ser um número inteiro entre ${min} e ${max}.`;
+    }
+  }
+  if (numericos["diastólica"] >= numericos["sistólica"]) {
+    return "A sistólica precisa ser maior que a diastólica.";
+  }
+  return null;
+}
+
 export function validatePhone(phone: string): boolean {
   const clean = phone.replace(/\D/g, "");
   return clean.length === 10 || clean.length === 11;

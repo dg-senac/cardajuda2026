@@ -1,30 +1,26 @@
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import { requireProfile } from "@/lib/actions/auth";
-import { listPacientes, listMedicoesByPaciente } from "@/lib/queries";
+import { listPacientesComUltimaMedicao } from "@/lib/queries";
 import PacientesSearch from "./PacientesSearch";
 
 export const dynamic = "force-dynamic";
 
 export default async function MedicoPacientesPage() {
   const profile = await requireProfile();
-  const pacientes = await listPacientes();
+  // Uma chamada em vez de 1 + N (era uma query de medição por paciente listado).
+  const pacientes = await listPacientesComUltimaMedicao();
 
-  const items = await Promise.all(
-    pacientes.map(async (paciente) => {
-      const ultima = (await listMedicoesByPaciente(paciente.id, 1))[0] ?? null;
-      return {
-        id: paciente.id,
-        nome: paciente.nome,
-        idade: paciente.idade,
-        genero: paciente.genero,
-        sistolica: ultima?.sistolica ?? null,
-        diastolica: ultima?.diastolica ?? null,
-        glicemia: ultima?.glicemia ?? null,
-        status: ultima?.status ?? null,
-      };
-    }),
-  );
+  const items = pacientes.map((paciente) => ({
+    id: paciente.id,
+    nome: paciente.nome,
+    idade: paciente.idade,
+    genero: paciente.genero,
+    sistolica: paciente.ultima?.sistolica ?? null,
+    diastolica: paciente.ultima?.diastolica ?? null,
+    glicemia: paciente.ultima?.glicemia ?? null,
+    status: paciente.ultima?.status ?? null,
+  }));
 
   return (
     <>

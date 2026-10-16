@@ -4,7 +4,7 @@ Os scripts deste diretório são executados no **SQL Editor** do Supabase (Dashb
 
 ## Instalação em um banco vazio
 
-1. Execute `schema.sql` para criar as 13 tabelas, chaves estrangeiras e índices. O script desativa RLS nessas tabelas.
+1. Execute `schema.sql` para criar as 13 tabelas, chaves estrangeiras e índices. O script ativa RLS nessas tabelas; o servidor usa owner/BYPASSRLS.
 2. Execute `seed.sql` para inserir dados de demonstração e contas de teste.
 
 `schema.sql` e `seed.sql` são idempotentes: podem ser executados novamente sem apagar dados ou duplicar o seed. O seed inclui quatro contas de teste e 28 refeições (7 dias × 4 refeições).
@@ -51,8 +51,14 @@ npm run db:seed    # opcional: contas de demonstração
 ```
 
 Os dois scripts usam a `DATABASE_URL` do `.env.local`, ou seja, o MESMO banco do app (diferente de
-rodar o SQL "no projeto errado"). Também dá para ver o estado pelo navegador: `GET /api/health`
-responde `{"ok":false,"missingTables":[...],"fix":"npm run db:setup"}` quando conecta mas falta schema.
+rodar o SQL "no projeto errado"). Também dá para ver o estado pelo navegador:
+
+- `/diagnostico` — página com a conexão em uso (`host:porta/banco`, sem senha), as 13 tabelas
+  (✓/✕), as **colunas** que faltam e o comando que resolve;
+- `GET /api/health` — o mesmo em JSON: `{"ok":false,"missingTables":[...],"fix":"npm run db:setup"}`.
+
+As telas de login e cadastro mostram esse aviso no topo quando o banco não está pronto, em vez de
+falharem só no envio do formulário.
 
 Causas frequentes, do mais comum ao menos comum:
 
@@ -87,6 +93,14 @@ As senhas são armazenadas como hashes bcrypt, compatíveis com o cadastro do ap
 
 ## Segurança e RLS
 
-O app não usa Supabase Auth: a autenticação própria guarda o hash bcrypt em `profiles.password_hash` e as sessões em `sessions`. Por isso, `schema.sql` desativa RLS nas 13 tabelas; sem políticas, RLS pode fazer consultas retornarem vazias. Como consequência, mantenha `DATABASE_URL` em segredo e não exponha essas tabelas diretamente pela chave `anon`/PostgREST. Se futuramente precisar desse acesso, reative RLS e crie políticas adequadas.
+O app preserva autenticação própria (bcrypt + `profiles`/`sessions`). O Android usa
+Edge Functions, não PostgREST: RLS ligado sem políticas públicas e grants revogados.
+Nunca desative RLS para resolver conexão. Servidores web/Edge usam conexão privada
+owner/BYPASSRLS; a autorização é responsabilidade do servidor.
 
-Os scripts não criam nem alteram `auth.users`, `storage.objects`, buckets ou funções do Supabase. O seed inclui os nomes dos dias da semana com acentos usados pelo app (`Terça-feira`, `Sábado`); não os remova, pois a consulta do cardápio compara esses valores exatamente.
+Para banco existente, **antes de aplicar SQL**, rode `preflight.sql` (somente leitura)
+e `npm run db:check`, compare schema/índices/constraints com o código. Revise depois
+`migrations/20261015_mobile_boundary.sql`. Essa migração preserva linhas e contas;
+cria aprovação médica e limites de login em schema privado. Revise também views e
+funções SECURITY DEFINER já existentes, que podem oferecer acessos alternativos.
+Não execute seed/reset no banco real. Veja os passos completos em [ANDROID.md](../ANDROID.md).

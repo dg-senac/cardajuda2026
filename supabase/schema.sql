@@ -1,12 +1,15 @@
 -- ============================================================================
 -- schema.sql  --  Schema do Carda Ajuda para Supabase / PostgreSQL
 -- ============================================================================
--- Baseado em src/db/schema.ts; inclui as chaves estrangeiras e os índices usados
--- pelo app. As 13 tabelas ficam no schema public.
+-- Baseado em src/db/schema.ts; inclui as chaves estrangeiras, os índices e os
+-- CHECK usados pelo app. As 13 tabelas ficam no schema public.
 --
--- * Idempotente: pode rodar de novo sem apagar dados.
--- * NAO apaga tabelas nem linhas. Para um reset destrutivo, leia reset.sql.
+-- * Idempotente: pode rodar de novo quantas vezes quiser.
+-- * NÃO apaga tabelas nem linhas, e NÃO dropa constraint existente (veja o
+--   bloco "CONSTRAINTS" -- só adiciona o que falta). Para reset destrutivo, leia reset.sql.
 -- * Requer PostgreSQL 13+ (gen_random_uuid() nativo; Supabase atual = OK).
+-- * Mantido em sincronia com src/db/schema.ts: os mesmos nomes de índice,
+--   constraint e as mesmas colunas. `npm run db:check` confere os dois no banco.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -36,7 +39,12 @@ create table if not exists "public"."pacientes" (
   "genero"           text not null,
   "doencas_cronicas" text[] default '{}'::text[] not null,
   "plano"            text,
-  constraint "pacientes_cpf_unique" unique ("cpf")
+  constraint "pacientes_cpf_unique" unique ("cpf"),
+  -- numeric(5,2) estoura com "170" (cm em vez de m) e devolve 22003 no meio do
+  -- cadastro. O app valida antes; a constraint fecha a porta para os outros
+  -- caminhos (seed, SQL Editor, importação).
+  constraint "pacientes_altura_check" check ("altura" between 0.30 and 2.80),
+  constraint "pacientes_idade_check" check ("idade" between 0 and 130)
 );
 
 create table if not exists "public"."medicos" (
@@ -145,137 +153,178 @@ create table if not exists "public"."assinaturas" (
   "paciente_id" uuid not null,
   "plano_id"    uuid not null,
   "status"      text not null,
-  "created_at"  timestamp with time zone default now() not null
+  "created_at"  timestamp with time zone default now() not null,
+  -- getAssinaturaAtual() filtra por status = 'ativa'. Sem CHECK, um 'ATIVO'
+  -- gravado por qualquer caminho fica invisível na tela (assinatura "sumida").
+  constraint "assinaturas_status_check" check ("status" in ('ativa','cancelada','pendente'))
 );
 
 -- ---------------------------------------------------------------------------
--- CHAVES ESTRANGEIRAS
--- O "drop if exists" + "add" e o que torna o bloco re-executavel: o Postgres
--- nao tem "ADD CONSTRAINT IF NOT EXISTS".
+-- CONSTRAINTS (FK, UNIQUE e CHECK para tabelas que já existiam)
+-- ---------------------------------------------------------------------------
+-- O Postgres não tem "ADD CONSTRAINT IF NOT EXISTS", e o velho padrão
+-- "DROP IF EXISTS + ADD" tinha dois problemas num banco com dados:
+--   1. um único comando que falha (ex.: linha fora do CHECK novo) abortava o
+--      arquivo inteiro, porque o schema.sql é enviado como uma só query;
+--   2. se o ADD falha depois do DROP, a constraint que já existia ia junto.
+-- Aqui cada constraint é adicionada em transação própria, só quando falta, e um
+-- erro vira NOTICE -- o restante do schema continua sendo aplicado.
 -- ---------------------------------------------------------------------------
 
-alter table "public"."pacientes" drop constraint if exists "pacientes_id_profiles_id_fk";
-alter table "public"."pacientes" add constraint "pacientes_id_profiles_id_fk"
-  foreign key ("id") references "public"."profiles"("id") on delete cascade;
+do $$
+declare
+  t_rec record;
+  v_found text;
+begin
+  for t_rec in
+    select * from (values
+      -- foreign keys
+      ('pacientes',   'pacientes_id_profiles_id_fk',
+        'alter table "public"."pacientes" add constraint "pacientes_id_profiles_id_fk" foreign key ("id") references "public"."profiles"("id") on delete cascade'),
+      ('medicos',     'medicos_id_profiles_id_fk',
+        'alter table "public"."medicos" add constraint "medicos_id_profiles_id_fk" foreign key ("id") references "public"."profiles"("id") on delete cascade'),
+      ('sessions',    'sessions_user_id_profiles_id_fk',
+        'alter table "public"."sessions" add constraint "sessions_user_id_profiles_id_fk" foreign key ("user_id") references "public"."profiles"("id") on delete cascade'),
+      ('consultas',   'consultas_paciente_id_pacientes_id_fk',
+        'alter table "public"."consultas" add constraint "consultas_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('consultas',   'consultas_medico_id_medicos_id_fk',
+        'alter table "public"."consultas" add constraint "consultas_medico_id_medicos_id_fk" foreign key ("medico_id") references "public"."medicos"("id") on delete set null'),
+      ('triagens',    'triagens_paciente_id_pacientes_id_fk',
+        'alter table "public"."triagens" add constraint "triagens_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('triagens',    'triagens_medico_id_medicos_id_fk',
+        'alter table "public"."triagens" add constraint "triagens_medico_id_medicos_id_fk" foreign key ("medico_id") references "public"."medicos"("id") on delete cascade'),
+      ('medicoes',    'medicoes_paciente_id_pacientes_id_fk',
+        'alter table "public"."medicoes" add constraint "medicoes_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('alertas',     'alertas_paciente_id_pacientes_id_fk',
+        'alter table "public"."alertas" add constraint "alertas_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('alertas',     'alertas_medico_id_medicos_id_fk',
+        'alter table "public"."alertas" add constraint "alertas_medico_id_medicos_id_fk" foreign key ("medico_id") references "public"."medicos"("id") on delete set null'),
+      ('pendencias',  'pendencias_medico_id_medicos_id_fk',
+        'alter table "public"."pendencias" add constraint "pendencias_medico_id_medicos_id_fk" foreign key ("medico_id") references "public"."medicos"("id") on delete cascade'),
+      ('pendencias',  'pendencias_paciente_id_pacientes_id_fk',
+        'alter table "public"."pendencias" add constraint "pendencias_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('lembretes',   'lembretes_paciente_id_pacientes_id_fk',
+        'alter table "public"."lembretes" add constraint "lembretes_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('assinaturas', 'assinaturas_paciente_id_pacientes_id_fk',
+        'alter table "public"."assinaturas" add constraint "assinaturas_paciente_id_pacientes_id_fk" foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade'),
+      ('assinaturas', 'assinaturas_plano_id_planos_id_fk',
+        'alter table "public"."assinaturas" add constraint "assinaturas_plano_id_planos_id_fk" foreign key ("plano_id") references "public"."planos"("id") on delete cascade'),
+      -- unique (para tabelas criadas antes deste script)
+      ('pacientes',       'pacientes_cpf_unique',
+        'alter table "public"."pacientes" add constraint "pacientes_cpf_unique" unique ("cpf")'),
+      ('medicos',         'medicos_crm_unique',
+        'alter table "public"."medicos" add constraint "medicos_crm_unique" unique ("crm")'),
+      ('profiles',        'profiles_email_unique',
+        'alter table "public"."profiles" add constraint "profiles_email_unique" unique ("email")'),
+      -- checks
+      ('profiles',    'profiles_role_check',
+        'alter table "public"."profiles" add constraint "profiles_role_check" check ("role" in (''paciente'',''medico''))'),
+      ('pacientes',   'pacientes_altura_check',
+        'alter table "public"."pacientes" add constraint "pacientes_altura_check" check ("altura" between 0.30 and 2.80)'),
+      ('pacientes',   'pacientes_idade_check',
+        'alter table "public"."pacientes" add constraint "pacientes_idade_check" check ("idade" between 0 and 130)'),
+      ('consultas',   'consultas_status_check',
+        'alter table "public"."consultas" add constraint "consultas_status_check" check ("status" in (''agendada'',''realizada'',''cancelada''))'),
+      ('triagens',    'triagens_classificacao_check',
+        'alter table "public"."triagens" add constraint "triagens_classificacao_check" check ("classificacao" in (''verde'',''amarela'',''vermelha''))'),
+      ('medicoes',    'medicoes_status_check',
+        'alter table "public"."medicoes" add constraint "medicoes_status_check" check ("status" in (''normal'',''atencao'',''alerta''))'),
+      ('alertas',     'alertas_status_check',
+        'alter table "public"."alertas" add constraint "alertas_status_check" check ("status" in (''alerta'',''pendente'',''em_dia''))'),
+      ('assinaturas', 'assinaturas_status_check',
+        'alter table "public"."assinaturas" add constraint "assinaturas_status_check" check ("status" in (''ativa'',''cancelada'',''pendente''))')
+    ) as c(tbl, cname, ddl)
+  loop
+    select c.conname into v_found
+      from pg_constraint c
+      join pg_class r on r.oid = c.conrelid
+      join pg_namespace n on n.oid = r.relnamespace
+     where n.nspname = 'public' and r.relname = t_rec.tbl and c.conname = t_rec.cname;
 
-alter table "public"."medicos" drop constraint if exists "medicos_id_profiles_id_fk";
-alter table "public"."medicos" add constraint "medicos_id_profiles_id_fk"
-  foreign key ("id") references "public"."profiles"("id") on delete cascade;
+    if v_found is not null then
+      continue;  -- já existe: nada a fazer (e nada é dropado)
+    end if;
 
-alter table "public"."sessions" drop constraint if exists "sessions_user_id_profiles_id_fk";
-alter table "public"."sessions" add constraint "sessions_user_id_profiles_id_fk"
-  foreign key ("user_id") references "public"."profiles"("id") on delete cascade;
-
-alter table "public"."consultas" drop constraint if exists "consultas_paciente_id_pacientes_id_fk";
-alter table "public"."consultas" add constraint "consultas_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."consultas" drop constraint if exists "consultas_medico_id_medicos_id_fk";
-alter table "public"."consultas" add constraint "consultas_medico_id_medicos_id_fk"
-  foreign key ("medico_id") references "public"."medicos"("id") on delete set null;
-
-alter table "public"."triagens" drop constraint if exists "triagens_paciente_id_pacientes_id_fk";
-alter table "public"."triagens" add constraint "triagens_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."triagens" drop constraint if exists "triagens_medico_id_medicos_id_fk";
-alter table "public"."triagens" add constraint "triagens_medico_id_medicos_id_fk"
-  foreign key ("medico_id") references "public"."medicos"("id") on delete cascade;
-
-alter table "public"."medicoes" drop constraint if exists "medicoes_paciente_id_pacientes_id_fk";
-alter table "public"."medicoes" add constraint "medicoes_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."alertas" drop constraint if exists "alertas_paciente_id_pacientes_id_fk";
-alter table "public"."alertas" add constraint "alertas_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."alertas" drop constraint if exists "alertas_medico_id_medicos_id_fk";
-alter table "public"."alertas" add constraint "alertas_medico_id_medicos_id_fk"
-  foreign key ("medico_id") references "public"."medicos"("id") on delete set null;
-
-alter table "public"."pendencias" drop constraint if exists "pendencias_medico_id_medicos_id_fk";
-alter table "public"."pendencias" add constraint "pendencias_medico_id_medicos_id_fk"
-  foreign key ("medico_id") references "public"."medicos"("id") on delete cascade;
-
-alter table "public"."pendencias" drop constraint if exists "pendencias_paciente_id_pacientes_id_fk";
-alter table "public"."pendencias" add constraint "pendencias_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."lembretes" drop constraint if exists "lembretes_paciente_id_pacientes_id_fk";
-alter table "public"."lembretes" add constraint "lembretes_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."assinaturas" drop constraint if exists "assinaturas_paciente_id_pacientes_id_fk";
-alter table "public"."assinaturas" add constraint "assinaturas_paciente_id_pacientes_id_fk"
-  foreign key ("paciente_id") references "public"."pacientes"("id") on delete cascade;
-
-alter table "public"."assinaturas" drop constraint if exists "assinaturas_plano_id_planos_id_fk";
-alter table "public"."assinaturas" add constraint "assinaturas_plano_id_planos_id_fk"
-  foreign key ("plano_id") references "public"."planos"("id") on delete cascade;
+    begin
+      execute t_rec.ddl;
+      raise notice 'constraint criada: %.%', t_rec.tbl, t_rec.cname;
+    exception when others then
+      raise notice 'AVISO: não foi possível criar %.% (%) -- dados atuais do banco
+        contradizem a regra. Limpe as linhas conflitantes e rode de novo, ou use
+        supabase/reset.sql se puder recriar tudo.', t_rec.tbl, t_rec.cname, sqlerrm;
+    end;
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------------------
--- INDICES  (isto o drizzle-kit NAO gera, e faz falta)
--- No Postgres uma FOREIGN KEY nao cria indice na coluna que referencia.
--- Sem isto, cada listagem por paciente vira um seq scan na tabela inteira.
--- As colunas seguem a ordem dos ORDER BY de src/lib/queries.ts.
+-- INDICES  (o drizzle-kit gera a partir de src/db/schema.ts; os nomes têm que
+-- bater com os dois lados, senão `npm run db:push` recria tudo)
 -- ---------------------------------------------------------------------------
+-- No Postgres uma FOREIGN KEY não cria índice na coluna que referencia. Sem isto,
+-- cada listagem por paciente vira um seq scan na tabela inteira. As colunas
+-- seguem a ordem dos ORDER BY de src/lib/queries.ts.
+
+create index if not exists "profiles_created_at_idx"
+  on "public"."profiles" using btree ("created_at" desc);
 
 create index if not exists "sessions_user_id_idx"
-  on "public"."sessions" ("user_id");
+  on "public"."sessions" using btree ("user_id");
+
+create index if not exists "sessions_expires_at_idx"
+  on "public"."sessions" using btree ("expires_at");
 
 create index if not exists "consultas_paciente_id_data_idx"
-  on "public"."consultas" ("paciente_id", "data" desc, "created_at" desc);
+  on "public"."consultas" using btree ("paciente_id", "data" desc, "created_at" desc);
 
 create index if not exists "consultas_medico_id_data_idx"
-  on "public"."consultas" ("medico_id", "data" desc, "created_at" desc);
+  on "public"."consultas" using btree ("medico_id", "data" desc, "created_at" desc);
 
 create index if not exists "triagens_medico_id_data_idx"
-  on "public"."triagens" ("medico_id", "data" desc, "created_at" desc);
+  on "public"."triagens" using btree ("medico_id", "data" desc, "created_at" desc);
 
 create index if not exists "triagens_paciente_id_idx"
-  on "public"."triagens" ("paciente_id");
+  on "public"."triagens" using btree ("paciente_id");
 
 create index if not exists "medicoes_paciente_id_created_idx"
-  on "public"."medicoes" ("paciente_id", "created_at" desc);
+  on "public"."medicoes" using btree ("paciente_id", "created_at" desc);
 
 create index if not exists "alertas_created_idx"
-  on "public"."alertas" ("created_at" desc);
+  on "public"."alertas" using btree ("created_at" desc);
 
 create index if not exists "alertas_paciente_id_idx"
-  on "public"."alertas" ("paciente_id");
+  on "public"."alertas" using btree ("paciente_id");
 
 create index if not exists "pendencias_medico_id_created_idx"
-  on "public"."pendencias" ("medico_id", "created_at" desc);
+  on "public"."pendencias" using btree ("medico_id", "created_at" desc);
 
 create index if not exists "pendencias_paciente_id_idx"
-  on "public"."pendencias" ("paciente_id");
+  on "public"."pendencias" using btree ("paciente_id");
 
 create index if not exists "lembretes_paciente_id_ativo_idx"
-  on "public"."lembretes" ("paciente_id", "ativo");
+  on "public"."lembretes" using btree ("paciente_id", "ativo");
 
 create index if not exists "cardapio_semanal_dia_semana_idx"
-  on "public"."cardapio_semanal" ("dia_semana");
+  on "public"."cardapio_semanal" using btree ("dia_semana");
+
+-- Uma linha por dia + refeicao: o seed ja usa NOT EXISTS, e o app assume esse
+-- par unico ao montar o cardapio do dia. Declarado como UNIQUE INDEX (e nao
+-- CONSTRAINT) para bater com o src/db/schema.ts: o drizzle-kit 0.31 nao
+-- reconhece constraint unique composta no `push` e propoe recria-la.
+create unique index if not exists "cardapio_semanal_dia_refeicao_unique"
+  on "public"."cardapio_semanal" ("dia_semana", "refeicao");
 
 create index if not exists "assinaturas_paciente_id_status_idx"
-  on "public"."assinaturas" ("paciente_id", "status");
+  on "public"."assinaturas" using btree ("paciente_id", "status");
 
 create index if not exists "assinaturas_plano_id_idx"
-  on "public"."assinaturas" ("plano_id");
+  on "public"."assinaturas" using btree ("plano_id");
 
 -- ---------------------------------------------------------------------------
 -- ROW LEVEL SECURITY
 -- ---------------------------------------------------------------------------
--- Este app NAO usa Supabase Auth. Ele tem autenticacao propria: bcrypt em
--- "profiles.password_hash" + cookie de sessao na tabela "sessions", e o banco
--- e acessado SO pelo servidor (src/db/index.ts e src/lib/* importam "server-only").
---
--- Com RLS ligado e sem politicas, todo SELECT volta VAZIO sem erro nenhum:
--- o sintoma e logar certo e ver as telas sem dado nenhum. Por isso desligamos.
---
--- Se voce um dia expor estas tabelas pela chave "anon" via PostgREST, ai sim
--- reative o RLS e escreva politicas -- mas nunca com a senha do role "postgres".
--- ---------------------------------------------------------------------------
+-- Autenticação própria no servidor web/Edge. Clientes NÃO consultam PostgREST.
+-- RLS deny-by-default; postgres (owner/BYPASSRLS) continua atendendo ao web.
+-- Para banco existente, revisar/aplicar migrations/20261015_mobile_boundary.sql.
 do $$
 declare t text;
 begin
@@ -283,16 +332,21 @@ begin
     'profiles','pacientes','medicos','sessions','consultas','triagens','medicoes',
     'alertas','pendencias','lembretes','cardapio_semanal','planos','assinaturas'
   ] loop
-    execute format('alter table public.%I disable row level security', t);
+    execute format('alter table public.%I enable row level security', t);
   end loop;
 end $$;
 
 -- ---------------------------------------------------------------------------
--- CONFERENCIA: deve retornar as 13 tabelas; rls_ativo deve ser false em todas.
+-- CONFERÊNCIA: deve retornar as 13 tabelas com rls_ativo = true e o total de
+-- índices/constraints esperado (a query final do script é o que o db:setup lê).
 -- ---------------------------------------------------------------------------
 select c.relname as tabela,
        (select count(*) from information_schema.columns x
          where x.table_schema='public' and x.table_name = c.relname) as n_colunas,
+       (select count(*) from pg_indexes i
+         where i.schemaname='public' and i.tablename = c.relname) as n_indices,
+       (select count(*) from pg_constraint k
+         where k.conrelid = c.oid and k.contype in ('f','c','u')) as n_constraints,
        c.relrowsecurity as rls_ativo
 from pg_class c
 where c.relnamespace = 'public'::regnamespace

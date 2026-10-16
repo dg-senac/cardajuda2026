@@ -4,98 +4,119 @@ App de telemedicina com foco em cuidado cardíaco: pacientes acompanham mediçõ
 alertas; médicos fazem triagem, atendem e acompanham o histórico. Next.js 16 (App Router,
 Server Actions) + PostgreSQL via Drizzle ORM + Tailwind, empacotável como APK com Capacitor.
 
-## Rodando o projeto
+## Android sem servidor Next.js próprio
+
+O APK abre uma interface local React e acessa uma **Supabase Edge Function**. Exige
+internet, mas não pede URL/configuração a quem instala. Contas bcrypt e dados existentes
+são preservados; não há migração para Supabase Auth. RLS bloqueia acesso direto às tabelas.
+
+Siga [`ANDROID.md`](ANDROID.md): conferir banco existente, revisar a migração de
+segurança, aprovar médicos, publicar a função e gerar o APK. O build usa somente a
+variável pública `MOBILE_SUPABASE_URL`; não usa chave anon ou segredo PostgreSQL.
+O web Next.js continua separado e só precisa de hospedagem se você também quiser
+oferecer acesso pelo navegador.
+
+> Banco real existente: **não execute reset, seed ou db:push**. Comece por
+> `npm run db:check` e `supabase/preflight.sql` (somente leitura). Sem acesso ao projeto,
+> não é possível afirmar que seu schema/RLS está correto.
+
+## Banco de dados
+
+O app fala com **um PostgreSQL** (Supabase na configuração atual) pela variável `DATABASE_URL`,
+usando `pg` + Drizzle ORM. Não há Supabase Auth: login, hash bcrypt e sessões vivem nas próprias
+tabelas `profiles` e `sessions`.
 
 ```bash
+cp .env.example .env.local     # cole a connection string do SEU projeto (nunca no README!)
 npm install
+npm run db:check               # host, DNS, conexão, tabelas, índices, integridade dos dados
+npm run db:setup               # apenas instalação NOVA/revisada
+npm run db:seed                # apenas banco de teste descartável
+npm run dev
 ```
-
-Crie o arquivo **`.env.local`** na raiz (não versionado) com a connection string do seu banco:
-
-```dotenv
-DATABASE_URL=postgresql://postgres.<ref>:<senha>@aws-0-<região>.pooler.supabase.com:5432/postgres?sslmode=require
-```
-
-Depois:
-
-```bash
-npm run db:check     # confere se dá para conectar e se as 13 tabelas existem
-npm run db:setup     # cria as tabelas (supabase/schema.sql) no banco da DATABASE_URL
-npm run db:seed      # opcional: contas de demonstração (senha 123456)
-npm run dev          # http://localhost:3000
-```
-
-Contas de demonstração criadas pelo `db:seed`: `maria@email.com` (paciente) e
-`ana@cardiajuda.com` (médica), senha `123456`. Detalhes dos scripts SQL e da connection string
-do Supabase em [supabase/README.md](supabase/README.md).
-
-## Erro ao cadastrar ou entrar: "Failed query: select ... from profiles"
-
-Esse é o erro mais comum deste projeto e ele **não diz qual é o problema**: o Drizzle embrulha
-qualquer falha do banco numa mensagem genérica
-
-```
-Failed query: select "id", "role", "nome", "email", "telefone", "password_hash", "avatar_url",
-"created_at" from "profiles" where "profiles"."email" = $1 limit $2
-params: alguem@email.com,1
-```
-
-e guarda a causa real em `error.cause` (tabela inexistente, senha errada, DNS, TLS, projeto
-pausado...). Todas essas causas produzem exatamente a mesma tela — por isso a primeira coisa a
-fazer é descobrir qual delas é a sua:
-
-```bash
-npm run db:check
-```
-
-O comando acima fala com o MESMO banco que o app usa e mostra host, porta, banco, usuário,
-status do DNS, conexão, quais das 13 tabelas existem e se a query do cadastro roda. Depois ele
-diz o que fazer. As causas mais frequentes:
-
-| Sintoma no `db:check` | Causa | Solução |
-|---|---|---|
-| `relation "profiles" does not exist` (42P01) | o banco que a `DATABASE_URL` aponta não tem o schema (por exemplo: as tabelas foram criadas noutro banco, ou num Postgres local via `drizzle-kit push`) | `npm run db:setup` — ou cole `supabase/schema.sql` no SQL Editor do Supabase |
-| `password authentication failed` (28P01) | senha errada ou caractere especial (`@ # / : ?`) não codificado na URL | confira a senha no painel do Supabase; codifique `@`→`%40`, `#`→`%23`, `/`→`%2F`, `:`→`%3A` |
-| `Tenant or user not found` | usuário do pooler sem o ref do projeto | use `postgres.<ref>` (copie a string de "Session pooler" do painel) |
-| `ENOTFOUND` / `ETIMEDOUT` / `ENETUNREACH` | host `db.<ref>.supabase.co` é **somente IPv6**; muitas redes não têm IPv6; ou o projeto está pausado | troque pelo Session pooler (`aws-0-<região>.pooler.supabase.com`), reative o projeto no painel e confira firewall/VPN |
-| `self-signed certificate` / erro de certificado | no `pg` 8.16+ o `sslmode=require` passou a exigir verificação completa do certificado | use `?sslmode=require&uselibpqcompat=true` na `DATABASE_URL` |
-| `Failed query` só depois de conectar | faltando tabela específica (`sessions`, `pacientes`...) | rode `npm run db:setup` de novo e confira `missingTables` em `/api/health` |
-
-O app foi ajustado para não esconder mais isso:
-
-- as actions de login/cadastro não deixam mais a exceção derrubar a página — a falha volta como
-  mensagem na tela, junto com o código e o "o que fazer" (em desenvolvimento, ou com
-  `DB_DEBUG_ERRORS=1` em produção);
-- o terminal do `npm run dev` mostra as linhas `[auth]` / `[db]` com a causa raiz e a trilha
-  completa (`Failed query ... <- error 42P01: relation "profiles" does not exist`);
-- `GET /api/health` responde se o banco responde **e** se as 13 tabelas existem:
-  `{"ok":false,"missingTables":["profiles",...],"fix":"npm run db:setup"}`;
-- o drizzle-kit (`npm run db:push`, `db:studio`) agora lê o mesmo `DATABASE_URL` do app
-  (`drizzle.config.ts`), em vez de apontar para um Postgres local.
-
-## Scripts
 
 | Comando | O que faz |
-|---|---|
-| `npm run dev` | servidor de desenvolvimento |
-| `npm run build` / `npm start` | build e execução em produção |
-| `npm run lint` / `npm run typecheck` / `npm test` | ESLint, TypeScript e testes do diagnóstico de banco (runner nativo do Node) |
-| `npm run db:check` | diagnóstico completo da conexão (host, DNS, tabelas, a query do cadastro) |
-| `npm run db:setup` | aplica `supabase/schema.sql` no banco da `DATABASE_URL` |
-| `npm run db:seed` | schema + contas e dados de demonstração |
-| `npm run db:push` / `npm run db:studio` | drizzle-kit (usa a mesma `DATABASE_URL`) |
-| `npm run android:build` | build do APK (ver [ANDROID.md](ANDROID.md)) |
+| --- | --- |
+| `npm run db:check` | Diagnóstico completo do banco apontado pela `DATABASE_URL`: origem do valor, formato da URL, DNS, conexão, TLS, quais das 13 tabelas existem, se os **índices/constraints** estão lá e se há **dados que quebram tela** (perfil órfão, sessão vencida, status fora do CHECK). |
+| `npm run db:setup` | Aplica `supabase/schema.sql`. Idempotente: cria o que falta, **não apaga nada** e não dropa constraint existente. |
+| `npm run db:seed` | `schema.sql` + `seed.sql` (contas e dados de demonstração). |
+| `npm run db:push` | Aplica o `src/db/schema.ts` direto no banco (drizzle-kit). |
+| `npm run db:generate` / `db:migrate` | Gera/executa as migrações de `drizzle/`. Os dois caminhos terminam no **mesmo schema** — há teste que garante isso. |
+| `npm run db:studio` | Drizzle Studio no banco da `DATABASE_URL`. |
 
-## Estrutura
+Detalhes (pooler vs. conexão direta, RLS, reset destrutivo, contas de teste): [`supabase/README.md`](supabase/README.md).
 
-- `src/app` — rotas (App Router). `api/health` é o health check do banco.
-- `src/lib/actions` — Server Actions (cadastro, login, consultas, triagens, medições).
-- `src/lib/session.ts` — sessão por cookie + tabela `sessions` (sem Supabase Auth).
-- `src/lib/db-diagnosis.mjs` — desembrulha o erro do Drizzle e traduz cada código do Postgres
-  para uma explicação e um próximo passo. Usado pelo app e pelos scripts.
-- `src/db/schema.ts` — schema Drizzle (13 tabelas). `supabase/schema.sql` é o mesmo schema em SQL.
-- `scripts/` — `db-check`, `db-setup` e os testes.
+### Onde está a verdade do schema
 
-> Segurança: `DATABASE_URL` é secreta e só é usada no servidor (as telas só recebem dados já
-> mapeados; `src/lib/session.ts` e os módulos de dados importam `server-only`). Nunca use o
-> prefixo `NEXT_PUBLIC_` nela e não versione o `.env.local`.
+`src/db/schema.ts` e `supabase/schema.sql` descrevem o mesmo banco e **precisam** bater — os nomes
+de índices e constraints são iguais nos dois. `scripts/db-schema-parity.test.mjs` (`npm test`)
+confere tabela por tabela, coluna por coluna, índice por índice, sem precisar de banco.
+
+Foi exatamente a ausência dessa checagem que quebrava as coisas antes: o `schema.ts` não declarava
+os índices, então um `npm run db:push` derrubava os 14 índices criados pelo `schema.sql`, e toda
+listagem virava varredura completa.
+
+### Testes com banco de verdade (opcional)
+
+A suíte padrão não precisa de banco: `npm test` lê arquivos e confere o catálogo de diagnóstico,
+a paridade `schema.ts` ↔ `schema.sql` e o que não pode existir no repositório (senha em commit).
+As suítes abaixo **executam** SQL e só rodam quando você aponta um servidor:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/cardajuda_dev npm test
+```
+
+Cada suíte cria para si um banco derivado (`<nome>_integ`, `<nome>_actions` e `<nome>_mobile`) e o recria do zero:
+o banco escrito na variável **nunca** é apagado, então um typo não derruba produção. O papel
+precisa de `CREATEDB`. Use somente Postgres LOCAL descartável, nunca Supabase de produção. O que cada uma garante:
+
+- `scripts/db-integration.test.mjs` — o `schema.sql` aplica num banco vazio e é idempotente, o
+  `seed.sql` roda duas vezes sem duplicar linha, os CHECK/FK/índices funcionam no plano de
+  execução e as queries das telas casam com o seed.
+- `scripts/db-actions.test.mjs` — chama as **actions reais** (as mesmas que o navegador chama) e
+  confere o que sobra no banco quando a gravação falha no meio: se o perfil é desfeito junto com
+  o paciente que falhou, se uma medição sem alerta não deixa medição órfã, se um médico consegue
+  mexer na consulta do outro, e se `%` digitado na busca vira curinga.
+
+- `scripts/mobile-integration.test.mjs` — API Android real com isolamento de pacientes,
+  aprovação/vínculo médico, sessões, persistência e RLS/grants públicos negados.
+
+### Segurança
+
+- `DATABASE_URL` **só** existe em `.env.local` (gitignored) e nos secrets do host
+  (Vercel/Render/GitHub Actions). Não cole a string em README, issue, print ou commit: o repositório
+  é público, e uma connection string com senha vale mais que qualquer dado do app.
+- Se uma connection string vazou (como a que esteve no README até hoje), **troque a senha do
+  `postgres` no painel do Supabase** — apagar o arquivo do commit não invalida a cópia de quem já
+  leu o histórico. Depois atualize `.env.local` e o secret do host.
+- O banco é acessado apenas pelo servidor; nada de `NEXT_PUBLIC_DATABASE_URL`.
+
+## Publicar somente o web (opcional; não necessário para Android)
+
+O web tem Server Actions e usa o Postgres no servidor: precisa de um host que rode Node — **não**
+funciona como site estático (GitHub Pages, Netlify static...).
+
+| O que fazer | Onde |
+| --- | --- |
+| Conectar o repositório | Vercel → New Project → importe o repositório |
+| `DATABASE_URL` | Settings → Environment Variables → adicione a connection string (Production **e** Preview) |
+| `DB_DEBUG_ERRORS=1` (opcional) | somente desenvolvimento local; desativado em produção |
+| Deploy | cada push na `main` publica sozinho |
+
+Depois do primeiro deploy, confirme em `https://SEU-ENDERECO/api/health`: deve responder
+`{"ok":true}`. Se responder `{"ok":false,...}`, o próprio JSON diz o que falta.
+
+O APK **não usa esse endereço**. Acessa a Edge Function Supabase conforme [`ANDROID.md`](ANDROID.md);
+`DATABASE_URL` permanece exclusivamente nos servidores web/Edge.
+
+## Scripts úteis
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint
+npm test            # sem banco: diagnóstico + paridade + checagens do APK (+ SQL e actions com TEST_DATABASE_URL)
+npm run build       # build de produção (não precisa de DATABASE_URL)
+npm run android:build   # gera o APK (JDK 21 + Android SDK)
+```
+
+Relatório desta entrega e pendências verificáveis: [`docs/ENTREGA.md`](docs/ENTREGA.md).

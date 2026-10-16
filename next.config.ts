@@ -4,15 +4,13 @@ import type { NextConfig } from "next";
 // com o header `Host`. Atrás de proxy/preview (ex.: https://3000-xxx.e2b.app)
 // os dois divergem e o Next aborta com "Invalid Server Actions request." (E80).
 // allowedOrigins libera essas origens confiáveis.
+//
+// O APK usa assets locais e Edge API; não depende de Server Actions.
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
-      allowedOrigins: [
-        "localhost:3000",
-        "127.0.0.1:3000",
-        "*.e2b.app",
-        "com.cardajuda.app",
-      ],
+      bodySizeLimit: "32kb",
+      allowedOrigins: ["localhost:3000", "127.0.0.1:3000", "*.e2b.app"],
     },
   },
 };

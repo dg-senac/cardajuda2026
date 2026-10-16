@@ -1,5 +1,6 @@
 import "server-only";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { requireDoctor, requirePatientAccess } from "@/lib/access";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   alertas,
@@ -41,10 +42,11 @@ const DIAS_SEMANA = [
 ];
 
 export function getDiaSemanaAtual(): string {
-  return DIAS_SEMANA[new Date().getDay()];
+  return DIAS_SEMANA[new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" })).getDay()];
 }
 
 export async function getPacienteById(id: string): Promise<Paciente | null> {
+  await requirePatientAccess(id);
   const rows = await db
     .select()
     .from(pacientes)
@@ -73,19 +75,37 @@ export async function listMedicos(): Promise<Medico[]> {
     .select()
     .from(medicos)
     .innerJoin(profiles, eq(medicos.id, profiles.id))
-    .orderBy(desc(medicos.avaliacao));
+    .where(sql`exists (select 1 from mobile_private.approved_doctors a where a.medico_id = ${medicos.id})`)
+    .orderBy(profiles.nome);
   return rows.map((row) => toMedico(row.profiles, row.medicos));
 }
 
+/**
+ * Prepara o termo para dentro de um LIKE/ILIKE.
+ *
+ * Sem isto, um "%" ou "_" digitado na busca vira curinga do padrão: procurar por
+ * "100%" achava qualquer CPF terminando em 100, e o "%" sozinho devolvia a lista
+ * inteira. O `\\` é escapado junto para o usuário poder procurar por backslash.
+ */
+function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
 export async function listPacientes(search?: string): Promise<Paciente[]> {
+  const doctor = await requireDoctor();
+  const linked = sql`exists (select 1 from consultas c where c.paciente_id = ${pacientes.id} and c.medico_id = ${doctor.id}::uuid)`;
   const base = db
     .select()
     .from(pacientes)
     .innerJoin(profiles, eq(pacientes.id, profiles.id));
 
+  // ORDER BY nos dois ramos: sem ele a busca voltava em ordem arbitrária (e
+  // mudando a cada página), porque o Postgres não garante ordem sem ORDER BY.
   const rows = search
-    ? await base.where(or(ilike(profiles.nome, `%${search}%`), ilike(pacientes.cpf, `%${search}%`)))
-    : await base.orderBy(desc(profiles.createdAt));
+    ? await base
+        .where(and(linked, or(ilike(profiles.nome, likePattern(search)), ilike(pacientes.cpf, likePattern(search)))))
+        .orderBy(desc(profiles.createdAt), profiles.nome)
+    : await base.where(linked).orderBy(desc(profiles.createdAt));
 
   return rows.map((row) => toPaciente(row.profiles, row.pacientes));
 }
@@ -107,6 +127,7 @@ function mapConsulta(row: typeof consultas.$inferSelect): Consulta {
 }
 
 export async function listConsultasByPaciente(pacienteId: string): Promise<Consulta[]> {
+  await requirePatientAccess(pacienteId);
   const rows = await db
     .select()
     .from(consultas)
@@ -116,7 +137,8 @@ export async function listConsultasByPaciente(pacienteId: string): Promise<Consu
 }
 
 export async function listTodasConsultas(): Promise<Consulta[]> {
-  const rows = await db.select().from(consultas).orderBy(desc(consultas.data), desc(consultas.createdAt));
+  const doctor = await requireDoctor();
+  const rows = await db.select().from(consultas).where(eq(consultas.medicoId, doctor.id)).orderBy(desc(consultas.data), desc(consultas.createdAt));
   return rows.map(mapConsulta);
 }
 
@@ -136,11 +158,13 @@ function mapTriagem(row: typeof triagens.$inferSelect): Triagem {
 }
 
 export async function listTodasTriagens(): Promise<Triagem[]> {
-  const rows = await db.select().from(triagens).orderBy(desc(triagens.data), desc(triagens.createdAt));
+  const doctor = await requireDoctor();
+  const rows = await db.select().from(triagens).where(eq(triagens.medicoId, doctor.id)).orderBy(desc(triagens.data), desc(triagens.createdAt));
   return rows.map(mapTriagem);
 }
 
 export async function listTriagensByMedico(medicoId: string): Promise<Triagem[]> {
+  await requireDoctor(medicoId);
   const rows = await db
     .select()
     .from(triagens)
@@ -150,6 +174,7 @@ export async function listTriagensByMedico(medicoId: string): Promise<Triagem[]>
 }
 
 export async function listConsultasByMedico(medicoId: string): Promise<Consulta[]> {
+  await requireDoctor(medicoId);
   const rows = await db
     .select()
     .from(consultas)
@@ -170,13 +195,62 @@ function mapMedicao(row: typeof medicoes.$inferSelect): Medicao {
   };
 }
 
-export async function listMedicoesByPaciente(pacienteId: string, limit = 10): Promise<Medicao[]> {
+/**
+ * Última medição de CADA paciente numa query só.
+ *
+ * A tela /medico/pacientes fazia `listMedicoesByPaciente(id, 1)` dentro de um
+ * `Promise.all` por paciente: 1 + N ida ao banco (com N=300 pacientes eram 301
+ * queries, cada uma pagando latência de pooler -- na prática, a tela demorando
+ * segundos). `distinct on` é a forma nativa do Postgres de dizer "a linha mais
+ * recente por grupo"; o índice medicoes_paciente_id_created_idx atende exatamente
+ * essa ordem, então o plano é um index scan por paciente, sem sort.
+ */
+export async function getUltimasMedicoesPorPaciente(
+  pacienteIds: string[],
+): Promise<Map<string, Medicao>> {
+  await Promise.all(pacienteIds.map(requirePatientAccess));
+  if (pacienteIds.length === 0) return new Map();
+
+  const rows = await db
+    .selectDistinctOn([medicoes.pacienteId], { medicao: medicoes })
+    .from(medicoes)
+    .where(inArray(medicoes.pacienteId, pacienteIds))
+    .orderBy(medicoes.pacienteId, desc(medicoes.createdAt));
+
+  return new Map(rows.map((row) => [row.medicao.pacienteId, mapMedicao(row.medicao)]));
+}
+
+/** Pacientes + última medição de cada um, em 2 queries (era 1 + N). */
+export async function listPacientesComUltimaMedicao(search?: string): Promise<
+  {
+    id: string;
+    nome: string;
+    idade: number;
+    genero: string;
+    ultima: Medicao | null;
+  }[]
+> {
+  const pacientesList = await listPacientes(search);
+  const ultimas = await getUltimasMedicoesPorPaciente(pacientesList.map((p) => p.id));
+
+  return pacientesList.map((paciente) => ({
+    id: paciente.id,
+    nome: paciente.nome,
+    idade: paciente.idade,
+    genero: paciente.genero,
+    ultima: ultimas.get(paciente.id) ?? null,
+  }));
+}
+
+export async function listMedicoesByPaciente(pacienteId: string, limit = 10, offset = 0): Promise<Medicao[]> {
+  await requirePatientAccess(pacienteId);
   const rows = await db
     .select()
     .from(medicoes)
     .where(eq(medicoes.pacienteId, pacienteId))
     .orderBy(desc(medicoes.createdAt))
-    .limit(limit);
+    .limit(Math.min(100, Math.max(1, limit)))
+    .offset(offset);
   return rows.map(mapMedicao);
 }
 
@@ -199,7 +273,8 @@ function mapAlerta(row: typeof alertas.$inferSelect): Alerta {
 }
 
 export async function listAlertas(): Promise<Alerta[]> {
-  const rows = await db.select().from(alertas).orderBy(desc(alertas.createdAt));
+  const doctor = await requireDoctor();
+  const rows = await db.select().from(alertas).where(or(eq(alertas.medicoId, doctor.id), sql`(${alertas.medicoId} is null and exists (select 1 from consultas c where c.paciente_id = ${alertas.pacienteId} and c.medico_id = ${doctor.id}::uuid))`)).orderBy(desc(alertas.createdAt));
   return rows.map(mapAlerta);
 }
 
@@ -215,6 +290,7 @@ function mapPendencia(row: typeof pendencias.$inferSelect): Pendencia {
 }
 
 export async function listPendenciasByMedico(medicoId: string): Promise<Pendencia[]> {
+  await requireDoctor(medicoId);
   const rows = await db
     .select()
     .from(pendencias)
@@ -223,7 +299,26 @@ export async function listPendenciasByMedico(medicoId: string): Promise<Pendenci
   return rows.map(mapPendencia);
 }
 
+/**
+ * Pendências do médico já com o nome do paciente (o JOIN economiza um select por
+ * linha -- a tela de alertas fazia getPacienteById() para cada pendência).
+ */
+export async function listPendenciasComPaciente(medicoId: string): Promise<
+  (Pendencia & { pacienteNome: string })[]
+> {
+  await requireDoctor(medicoId);
+  const rows = await db
+    .select({ pendencia: pendencias, pacienteNome: profiles.nome })
+    .from(pendencias)
+    .innerJoin(profiles, eq(pendencias.pacienteId, profiles.id))
+    .where(eq(pendencias.medicoId, medicoId))
+    .orderBy(desc(pendencias.createdAt));
+
+  return rows.map((row) => ({ ...mapPendencia(row.pendencia), pacienteNome: row.pacienteNome }));
+}
+
 export async function listLembretesByPaciente(pacienteId: string): Promise<Lembrete[]> {
+  await requirePatientAccess(pacienteId);
   const rows = await db
     .select()
     .from(lembretes)
@@ -258,6 +353,7 @@ export async function listPlanos(): Promise<Plano[]> {
 }
 
 export async function getAssinaturaAtual(pacienteId: string): Promise<(Assinatura & { planoNome?: string }) | null> {
+  await requirePatientAccess(pacienteId);
   const rows = await db
     .select()
     .from(assinaturas)

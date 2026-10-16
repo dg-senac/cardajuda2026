@@ -1,11 +1,7 @@
 {
   "appId": "com.cardajuda.app",
   "appName": "Carda Ajuda",
-  "webDir": ".next",
-  "bundledWebRuntime": false,
-  "server": {
-    "androidScheme": "https",
-    "url": "https://seu-servidor-production.com",
-    "cleartext": false
-  }
+  "webDir": "www",
+  "server": { "androidScheme": "https", "cleartext": false },
+  "android": { "allowMixedContent": false }
 }

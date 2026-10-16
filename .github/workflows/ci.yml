@@ -1,0 +1,78 @@
+name: CI (web)
+
+# Confere o app web: tipos, lint, testes e build.
+#
+# O build roda SEM DATABASE_URL de propósito: desde que a conexão passou a ser
+# criada na primeira consulta (src/db/index.ts), o `next build` não precisa do
+# banco -- e o workflow do APK também não. Se algum arquivo voltar a exigir a
+# variável no import, este CI quebra e avisa.
+#
+# Testes de banco usam somente o serviço PostgreSQL descartável deste job.
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-local-only
+          POSTGRES_DB: cardajuda_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:ci-local-only@127.0.0.1:5432/cardajuda_test
+
+      - name: Build API Edge
+        run: npm run edge:build
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Resolve dependências Deno
+        run: deno cache --frozen supabase/functions/mobile-api/index.ts
+
+      - name: Preparar banco descartável Deno
+        run: node scripts/edge-runtime-setup.mjs
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:ci-local-only@127.0.0.1:5432/cardajuda_test
+      - name: Testar runtime Deno real
+        run: deno test --allow-env --allow-net --allow-read --no-check --config supabase/functions/mobile-api/deno.json supabase/functions/mobile-api/runtime.deno.ts
+        env:
+          DATABASE_URL: postgresql://postgres:ci-local-only@127.0.0.1:5432/cardajuda_runtime
+      - name: Build
+        run: npm run build
