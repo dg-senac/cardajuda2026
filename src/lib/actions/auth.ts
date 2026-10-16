@@ -1,6 +1,6 @@
 "use server";
 
-import { throttle } from "@/lib/throttle";
+import { clearThrottle, throttle } from "@/lib/throttle";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
@@ -80,6 +80,9 @@ export async function loginAction(formData: FormData): Promise<ActionResult> {
   } catch (error) {
     return dbFailure("login", "loginAction/createSession", error);
   }
+
+  // Senha correta: zera o contador desta conta. Falha aqui não impede a entrada.
+  await clearThrottle(email).catch(() => {});
 
   return { success: true };
 }

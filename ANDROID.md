@@ -1,5 +1,37 @@
 # Carda Ajuda — Android local + Supabase
 
+## Checklist rápido (o que fazer no seu painel, nesta ordem)
+
+Os passos detalhados estão nas seções abaixo. Este resumo cobre o caminho até o APK funcionar.
+
+1. **Supabase → SQL Editor → `supabase/preflight.sql`** (somente leitura). Confira as 13 tabelas.
+2. **Supabase → SQL Editor → `supabase/migrations/20261015_mobile_boundary.sql`**, inteiro, uma vez.
+   Hoje as 13 tabelas aparecem como *UNRESTRICTED* (RLS desligado): qualquer pessoa com a
+   chave pública do projeto consegue ler contas e dados clínicos. A migração liga o RLS, revoga o
+   acesso público e **não apaga nem altera nenhuma linha**. Depois dela, o `anon` recebe
+   "permission denied" nas tabelas.
+3. **Aprovar médicos** — `supabase/03_aprovar_medico.sql`: execute o passo 1 (lista com UUIDs), depois
+   o passo 2 com o UUID do médico. Médico não aprovado entra, mas não vê pacientes. Pacientes não
+   precisam de aprovação.
+4. **Opcional** — `supabase/05_conteudo_planos_cardapio.sql`, só se as telas *Planos* e *Cardápio*
+   estiverem vazias. Não cria contas nem dados clínicos.
+5. **URL pública do projeto** — Supabase → Project Settings → Data API → *Project URL*
+   (`https://<ref>.supabase.co`). No GitHub: Settings → Secrets and variables → Actions → **Variables**
+   → crie `MOBILE_SUPABASE_URL` com esse valor. Sem ela, o workflow **Gerar APK Android** para no
+   passo "Bundle local interface" (é a falha atual do `main`). Alternativa pontual: em
+   Actions → Gerar APK Android → *Run workflow*, preencha `supabase_url`.
+6. **Função da API** — Supabase → Edge Functions → Secrets: crie `DATABASE_URL` (Session pooler,
+   com `sslmode=require`). Depois publique: Actions → **Publicar API Supabase** (exige a Variable
+   `SUPABASE_PROJECT_REF` e o Secret `SUPABASE_ACCESS_TOKEN`).
+7. **APK** — Actions → **Gerar APK Android** → *Run workflow* → baixe o artifact
+   `Carda-Ajuda-Android-debug`, extraia `app-debug.apk` e instale no Android.
+
+Fluxo validado antes da entrega (PostgreSQL local com o mesmo schema, RLS antes/depois, Edge
+Function real e interface mobile em navegador): cadastro e entrada de paciente, medição com alerta,
+agendamento com médica aprovada, assinatura de plano, sair/entrar, isolamento entre contas,
+médica atendendo consulta e triagem vermelha, e médico sem aprovação sem dados clínicos.
+**Ainda não foi validado:** o APK em aparelho real e o Supabase de produção (sem acesso daqui).
+
 ## O que é entregue e o que ainda exige homologação
 
 A UI React está em `mobile/`, é compilada em `www/` e copiada pelo Capacitor
